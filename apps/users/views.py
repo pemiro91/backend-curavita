@@ -138,9 +138,12 @@ class PasswordResetRequestView(generics.GenericAPIView):
     Vista para solicitar reset de contraseña.
     """
     permission_classes = [AllowAny]
+    serializer_class = PasswordResetSerializer
 
     def post(self, request):
-        email = request.data.get('email')
+        serializer = self.get_serializer(data=request.data)  # Usar serializer
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
         if not email:
             return Response(
                 {'email': ['Este campo es obligatorio.']},

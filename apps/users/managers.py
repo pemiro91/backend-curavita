@@ -3,30 +3,37 @@ from django.utils.translation import gettext_lazy as _
 
 
 class UserManager(BaseUserManager):
-    def create_user(self, email, first_name, last_name, password=None, **extra_fields):
+    """
+    Manager personalizado para el modelo User.
+    """
+
+    def create_user(self, email, password=None, **extra_fields):
+        """
+        Crea y guarda un usuario regular.
+        """
         if not email:
-            raise ValueError(_('The Email must be set'))
+            raise ValueError(_('El email es obligatorio.'))
 
         email = self.normalize_email(email)
-        user = self.model(
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
-            **extra_fields
-        )
+        user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email, first_name, last_name, password=None, **extra_fields):
-        extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_superuser', True)
+    def create_superuser(self, email, password=None, **extra_fields):
+        """
+        Crea y guarda un superusuario.
+        """
+        # Establecer valores por defecto para superusuario
+        extra_fields.setdefault('is_staff', True)  # ← FALTABA ESTO
+        extra_fields.setdefault('is_superuser', True)  # ← FALTABA ESTO
         extra_fields.setdefault('is_active', True)
-        extra_fields.setdefault('user_type', 'super_admin')
+        extra_fields.setdefault('user_type', 'super_admin')  # ← Opcional pero recomendado
 
-        if extra_fields.get('is_staff'):
+        # Validaciones
+        if extra_fields.get('is_staff') is not True:
             raise ValueError(_('Superuser must have is_staff=True.'))
-        if extra_fields.get('is_superuser'):
+        if extra_fields.get('is_superuser') is not True:
             raise ValueError(_('Superuser must have is_superuser=True.'))
 
-        return self.create_user(email, first_name, last_name, password, **extra_fields)
+        return self.create_user(email, password, **extra_fields)

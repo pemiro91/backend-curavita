@@ -114,3 +114,123 @@ class DoctorCreateSerializer(serializers.ModelSerializer):
             return value
         except User.DoesNotExist:
             raise serializers.ValidationError("Usuario no encontrado.")
+
+
+# Añadir a tu serializers.py de Clinics
+
+
+class ClinicCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer para crear nuevas clínicas.
+    """
+    admin_emails = serializers.ListField(
+        child=serializers.EmailField(),
+        write_only=True,
+        required=False,
+        help_text="Lista de emails de administradores adicionales"
+    )
+
+    class Meta:
+        model = Clinic
+        fields = [
+            'name', 'description', 'email', 'phone', 'website',
+            'street', 'number', 'complement', 'neighborhood',
+            'city', 'state', 'zip_code', 'latitude', 'longitude',
+            'logo', 'cover_image', 'opening_time', 'closing_time',
+            'appointment_duration', 'allow_online_booking',
+            'admin_emails'
+        ]
+
+    def validate_email(self, value):
+        """Validar email único."""
+        if Clinic.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Ya existe una clínica con este email.")
+        return value
+
+    def validate_name(self, value):
+        """Validar nombre único en la misma ciudad."""
+        # Esto se validará en create/update considerando la ciudad
+        return value
+
+    def validate(self, attrs):
+        """Validaciones generales."""
+        # Validar horarios
+        opening = attrs.get('opening_time')
+        closing = attrs.get('closing_time')
+
+        if opening and closing and opening >= closing:
+            raise serializers.ValidationError(
+                {"closing_time": "La hora de cierre debe ser posterior a la de apertura."}
+            )
+
+        # Validar coordenadas si se proporcionan
+        lat = attrs.get('latitude')
+        lng = attrs.get('longitude')
+
+        if (lat is not None and lng is None) or (lat is None and lng is not None):
+            raise serializers.ValidationError(
+                "Debes proporcionar ambas coordenadas (latitud y longitud) o ninguna."
+            )
+
+        if lat is not None:
+            if not (-90 <= lat <= 90):
+                raise serializers.ValidationError(
+                    {"latitude": "La latitud debe estar entre -90 y 90."}
+                )
+            if not (-180 <= lng <= 180):
+                raise serializers.ValidationError(
+                    {"longitude": "La longitud debe estar entre -180 y 180."}
+                )
+
+        return attrs
+
+    def create(self, validated_data):
+        """Crear clínica con el usuario actual como admin."""
+        admin_emails = validated_data.pop('admin_emails', [])
+
+        # Crear clínica
+        clinic = Clinic.objects.create(
+            **validated_data,
+            status='pending'  # Requiere aprobación
+        )
+
+        # Añadir creador como admin
+        clinic.admins.add(self.context['request'].user)
+
+        # Añadir admins adicionales si existen
+        from apps.users.models import User
+        for email in admin_emails:
+            try:
+                user = User.objects.get(email=email)
+                clinic.admins.add(user)
+            except User.DoesNotExist:
+                # Opcional: enviar invitación
+                pass
+
+        return clinic
+
+
+class ClinicUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer para actualizar clínicas.
+    """
+
+    class Meta:
+        model = Clinic
+        fields = [
+            'name', 'description', 'email', 'phone', 'website',
+            'street', 'number', 'complement', 'neighborhood',
+            'city', 'state', 'zip_code', 'latitude', 'longitude',
+            'logo', 'cover_image', 'opening_time', 'closing_time',
+            'appointment_duration', 'allow_online_booking', 'status'
+        ]
+
+    def validate(self, attrs):
+        opening = attrs.get('opening_time', self.instance.opening_time)
+        closing = attrs.get('closing_time', self.instance.closing_time)
+
+        if opening and closing and opening >= closing:
+            raise serializers.ValidationError(
+                {"closing_time": "La hora de cierre debe ser posterior a la de apertura."}
+            )
+        return attrs

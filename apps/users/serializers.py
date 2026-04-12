@@ -84,3 +84,85 @@ class ChangePasswordSerializer(serializers.Serializer):
                 {"new_password_confirm": "Las contraseñas no coinciden."}
             )
         return attrs
+
+
+class PasswordResetSerializer(serializers.Serializer):
+    """
+    Serializer para solicitar reset de contraseña.
+    Valida que el email exista y tenga formato correcto.
+    """
+    email = serializers.EmailField(required=True)
+
+    def validate_email(self, value):
+        """Validar formato de email."""
+        value = value.lower().strip()
+        return value
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """
+    Serializer para confirmar el reset de contraseña.
+    Valida el token, uid y nueva contraseña.
+    """
+    uid = serializers.CharField(required=True)
+    token = serializers.CharField(required=True)
+    password = serializers.CharField(
+        required=True,
+        write_only=True,
+        validators=[validate_password],
+        min_length=8
+    )
+    password_confirm = serializers.CharField(required=True, write_only=True)
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError(
+                {"password_confirm": "Las contraseñas no coinciden."}
+            )
+        return attrs
+
+
+class EmailVerificationSerializer(serializers.Serializer):
+    """
+    Serializer para verificación de email.
+    """
+    token = serializers.UUIDField(required=True)
+
+
+class ResendVerificationSerializer(serializers.Serializer):
+    """
+    Serializer para reenviar verificación.
+    """
+    email = serializers.EmailField(required=True)
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer para perfil público de usuario (menos datos sensibles).
+    """
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'first_name', 'last_name', 'avatar',
+            'user_type', 'date_joined'
+        ]
+        read_only_fields = fields
+
+
+class UserAdminSerializer(serializers.ModelSerializer):
+    """
+    Serializer para administradores (más campos que el normal).
+    """
+    addresses = AddressSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'phone',
+            'document_number', 'date_of_birth', 'gender',
+            'avatar', 'user_type', 'is_verified', 'is_active',
+            'preferred_language', 'receive_notifications',
+            'date_joined', 'last_login', 'addresses'
+        ]
+        read_only_fields = ['id', 'date_joined', 'last_login']

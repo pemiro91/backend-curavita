@@ -1,16 +1,17 @@
 import logging
-from django.db.models import Q, Count
+
+from django.db.models import Q
 from django.utils import timezone
-from rest_framework import viewsets, status, generics
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied, ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
-from datetime import datetime, timedelta
+from rest_framework import viewsets, status, generics
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
 
 from .models import Appointment, TimeSlot, AppointmentHistory
+from .permissions import IsAppointmentParticipant
 from .serializers import (
     AppointmentListSerializer,
     AppointmentDetailSerializer,
@@ -19,9 +20,8 @@ from .serializers import (
     TimeSlotSerializer,
     TimeSlotCreateSerializer,
     AppointmentHistorySerializer,
-    AvailableSlotsQuerySerializer,
+    AvailableSlotsQuerySerializer, AppointmentActionResponseSerializer,
 )
-from .permissions import IsAppointmentParticipant
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +298,7 @@ class CancelAppointmentView(generics.GenericAPIView):
     Vista para cancelar una cita.
     """
     permission_classes = [IsAuthenticated, IsAppointmentParticipant]
+    serializer_class = AppointmentActionResponseSerializer
 
     def post(self, request, pk):
         appointment = Appointment.objects.get(id=pk)
@@ -352,6 +353,7 @@ class ConfirmAppointmentView(generics.GenericAPIView):
     Vista para confirmar una cita.
     """
     permission_classes = [IsAuthenticated]
+    serializer_class = AppointmentActionResponseSerializer
 
     def post(self, request, pk):
         appointment = Appointment.objects.get(id=pk)
@@ -371,6 +373,7 @@ class CompleteAppointmentView(generics.GenericAPIView):
     Vista para completar una cita.
     """
     permission_classes = [IsAuthenticated]
+    serializer_class = AppointmentActionResponseSerializer
 
     def post(self, request, pk):
         appointment = Appointment.objects.get(id=pk)
@@ -384,6 +387,7 @@ class CheckInAppointmentView(generics.GenericAPIView):
     Vista para check-in de una cita.
     """
     permission_classes = [IsAuthenticated]
+    serializer_class = AppointmentActionResponseSerializer
 
     def post(self, request, pk):
         appointment = Appointment.objects.get(id=pk)
@@ -398,9 +402,14 @@ class AppointmentHistoryView(generics.ListAPIView):
     """
     serializer_class = AppointmentHistorySerializer
     permission_classes = [IsAuthenticated, IsAppointmentParticipant]
+    queryset = AppointmentHistory.objects.none()
 
     def get_queryset(self):
-        appointment_id = self.kwargs['pk']
+        # Protección para drf-spectacular
+        if getattr(self, 'swagger_fake_view', False):
+            return AppointmentHistory.objects.none()
+
+        appointment_id = self.kwargs.get('pk')
         return AppointmentHistory.objects.filter(appointment_id=appointment_id)
 
 

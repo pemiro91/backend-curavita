@@ -1,20 +1,18 @@
-# apps/services/views.py
 import logging
-from rest_framework import viewsets, status, generics
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
+from rest_framework import viewsets, generics
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from .models import Specialty, Service
+from .permissions import IsClinicAdminOrReadOnly
 from .serializers import (
     SpecialtySerializer,
     ServiceSerializer,
     ServiceDetailSerializer,
     ServiceCreateSerializer,
 )
-from .permissions import IsClinicAdminOrReadOnly
 
 logger = logging.getLogger(__name__)
 

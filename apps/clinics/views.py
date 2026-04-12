@@ -1,17 +1,17 @@
-# apps/clinics/views.py
 import logging
-from django.db.models import Avg, Count, Q
-from django.utils import timezone
+
+from django.db.models import Q
+from django_filters.rest_framework import DjangoFilterBackend
+from geopy.distance import geodesic
+from rest_framework import filters
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.exceptions import PermissionDenied
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters
-from geopy.distance import geodesic
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
 
 from .models import Clinic, Doctor, ClinicImage
+from .permissions import IsClinicAdminOrReadOnly, IsClinicAdmin
 from .serializers import (
     ClinicListSerializer,
     ClinicDetailSerializer,
@@ -21,7 +21,6 @@ from .serializers import (
     DoctorCreateSerializer,
     ClinicImageSerializer,
 )
-from .permissions import IsClinicAdminOrReadOnly, IsClinicAdmin
 
 logger = logging.getLogger(__name__)
 

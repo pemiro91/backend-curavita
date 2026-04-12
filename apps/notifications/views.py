@@ -1,4 +1,3 @@
-# apps/notifications/views.py
 import logging
 from django.utils import timezone
 from rest_framework import viewsets, status, generics
@@ -14,6 +13,7 @@ from .serializers import (
     NotificationPreferenceSerializer,
     NotificationCreateSerializer,
 )
+from ..users.permissions import IsSuperAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -22,32 +22,29 @@ class NotificationViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de notificaciones.
     """
-    serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['status', 'notification_type']
     ordering_fields = ['created_at']
     ordering = ['-created_at']
 
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return NotificationCreateSerializer  # ← AHORA SÍ SE USA
+        return NotificationSerializer
+
     def get_queryset(self):
         return Notification.objects.filter(recipient=self.request.user)
 
-    @action(detail=True, methods=['post'])
-    def read(self, request, pk=None):
-        """Marcar notificación como leída"""
-        notification = self.get_object()
-        notification.mark_as_read()
-        return Response({'message': 'Notificación marcada como leída.'})
+    def get_permissions(self):
+        # Solo super_admin puede crear notificaciones manualmente
+        if self.action == 'create':
+            return [IsAuthenticated(), IsSuperAdmin()]
+        return [IsAuthenticated()]
 
-    @action(detail=False, methods=['post'])
-    def mark_all_read(self, request):
-        """Marcar todas las notificaciones como leídas"""
-        Notification.objects.filter(
-            recipient=request.user,
-            status__in=['sent', 'delivered']
-        ).update(status='read', read_at=timezone.now())
-
-        return Response({'message': 'Todas las notificaciones marcadas como leídas.'})
+    def perform_create(self, serializer):
+        """El recipient se asigna desde el serializer, no del request.user"""
+        serializer.save()
 
 
 class MyNotificationsView(generics.ListAPIView):

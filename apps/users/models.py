@@ -45,8 +45,16 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
 
     # Estados
-    is_staff = models.BooleanField(default=False)
-    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(
+        default=False,
+        help_text='Designa si el usuario puede entrar al sitio de administración.',
+        verbose_name='Es staff'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Designa si el usuario debe ser tratado como activo.',
+        verbose_name='Está activo'
+    )
     is_verified = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
     last_login = models.DateTimeField(null=True, blank=True)
