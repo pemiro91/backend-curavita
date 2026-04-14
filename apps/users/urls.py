@@ -14,6 +14,7 @@ from .views import (
     PasswordResetConfirmView,
     EmailVerificationView,
     ResendVerificationEmailView,
+    CurrentUserView
 )
 
 router = DefaultRouter()
@@ -30,6 +31,8 @@ urlpatterns = [
 
     # Registro
     path('register/', UserRegistrationView.as_view(), name='register'),
+
+    path('me/', CurrentUserView.as_view(), name='current-user'),
 
     # Password reset
     path('password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),

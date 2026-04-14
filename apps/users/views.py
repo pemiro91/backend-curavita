@@ -259,3 +259,14 @@ class ResendVerificationEmailView(generics.GenericAPIView):
         )
 
         return Response({'message': 'Email de verificación reenviado.'})
+
+
+class CurrentUserView(generics.RetrieveAPIView):
+    """
+    Vista para obtener el usuario actual autenticado.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserSerializer
+
+    def get_object(self):
+        return self.request.user

@@ -62,6 +62,25 @@ class UserCreateSerializer(serializers.ModelSerializer):
         user = User.objects.create_user(**validated_data)
         return user
 
+    def validate_preferred_language(self, value):
+        """
+        Normaliza el código de idioma: es-ES → es, en-US → en, etc.
+        """
+        if not value:
+            return 'es'
+
+        # Convertir a minúsculas y tomar solo la parte antes del guión
+        normalized = value.lower().split('-')[0]
+
+        # Lista de idiomas permitidos
+        allowed = ['es', 'en', 'pt', 'fr', 'de']
+
+        if normalized in allowed:
+            return normalized
+
+        # Si no está en la lista, usar español por defecto
+        return 'es'
+
 
 class UserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
