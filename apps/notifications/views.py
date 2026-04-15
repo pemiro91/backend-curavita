@@ -1,5 +1,6 @@
 import logging
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,7 +18,7 @@ from ..users.permissions import IsSuperAdmin
 
 logger = logging.getLogger(__name__)
 
-
+@extend_schema(tags=['Notificaciones'])
 class NotificationViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de notificaciones.
@@ -46,7 +47,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
         """El recipient se asigna desde el serializer, no del request.user"""
         serializer.save()
 
-
+@extend_schema(tags=['Notificaciones'])
 class MyNotificationsView(generics.ListAPIView):
     """
     Vista para listar notificaciones del usuario.
@@ -59,7 +60,7 @@ class MyNotificationsView(generics.ListAPIView):
             recipient=self.request.user
         ).order_by('-created_at')
 
-
+@extend_schema(tags=['Notificaciones'])
 class MarkNotificationAsReadView(generics.GenericAPIView):
     """
     Vista para marcar notificación como leída.
@@ -71,7 +72,7 @@ class MarkNotificationAsReadView(generics.GenericAPIView):
         notification.mark_as_read()
         return Response({'message': 'Notificación marcada como leída.'})
 
-
+@extend_schema(tags=['Notificaciones'])
 class MarkAllNotificationsAsReadView(generics.GenericAPIView):
     """
     Vista para marcar todas las notificaciones como leídas.
@@ -86,7 +87,7 @@ class MarkAllNotificationsAsReadView(generics.GenericAPIView):
 
         return Response({'message': 'Todas las notificaciones marcadas como leídas.'})
 
-
+@extend_schema(tags=['Notificaciones'])
 class NotificationPreferencesView(generics.RetrieveUpdateAPIView):
     """
     Vista para gestionar preferencias de notificación.
@@ -100,7 +101,7 @@ class NotificationPreferencesView(generics.RetrieveUpdateAPIView):
         )
         return preference
 
-
+@extend_schema(tags=['Notificaciones'])
 class UnreadNotificationsCountView(generics.GenericAPIView):
     """
     Vista para obtener contador de notificaciones no leídas.
@@ -115,7 +116,7 @@ class UnreadNotificationsCountView(generics.GenericAPIView):
 
         return Response({'unread_count': count})
 
-
+@extend_schema(tags=['Notificaciones'])
 class DeleteNotificationView(generics.DestroyAPIView):
     """
     Vista para eliminar una notificación.
@@ -125,7 +126,7 @@ class DeleteNotificationView(generics.DestroyAPIView):
     def get_queryset(self):
         return Notification.objects.filter(recipient=self.request.user)
 
-
+@extend_schema(tags=['Notificaciones'])
 class TestNotificationView(generics.GenericAPIView):
     """
     Vista para enviar notificación de prueba.

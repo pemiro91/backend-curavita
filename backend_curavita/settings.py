@@ -250,10 +250,13 @@ DEFAULT_FROM_EMAIL = 'noreply@healthhub.com'
 
 # Spectacular (Documentación API)
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Health Hub Connect API',
+    'TITLE': 'CuraVita API',
     'DESCRIPTION': 'API para gestión de citas médicas y clínicas',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # Agrupar por tags
+    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]',
+    'SCHEMA_PATH_PREFIX_TRIM': True,
 }
 
 # Custom User Model

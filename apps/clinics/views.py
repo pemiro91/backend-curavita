@@ -2,6 +2,7 @@ import logging
 
 from django.db.models import Q
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from geopy.distance import geodesic
 from rest_framework import filters
 from rest_framework import viewsets, status, generics
@@ -24,7 +25,7 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-
+@extend_schema(tags=['Clínicas'])
 class ClinicViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de clínicas.
@@ -134,7 +135,7 @@ class ClinicViewSet(viewsets.ModelViewSet):
         clinic.save()
         return Response({'message': 'Clínica aprobada correctamente.'})
 
-
+@extend_schema(tags=['Clínicas'])
 class DoctorViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de médicos.
@@ -199,7 +200,7 @@ class DoctorViewSet(viewsets.ModelViewSet):
         doctor.save()
         return Response({'message': 'Horario actualizado correctamente.'})
 
-
+@extend_schema(tags=['Clínicas'])
 class ClinicImageViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de imágenes de clínicas.
@@ -216,7 +217,7 @@ class ClinicImageViewSet(viewsets.ModelViewSet):
         clinic = Clinic.objects.get(id=clinic_id)
         serializer.save(clinic=clinic)
 
-
+@extend_schema(tags=['Clínicas'])
 class NearbyClinicsView(generics.ListAPIView):
     """
     Vista para buscar clínicas cercanas.
@@ -243,7 +244,7 @@ class NearbyClinicsView(generics.ListAPIView):
         serializer = self.get_serializer(clinics, many=True)
         return Response(serializer.data)
 
-
+@extend_schema(tags=['Clínicas'])
 class ClinicSearchView(generics.ListAPIView):
     """
     Vista para búsqueda de clínicas.
@@ -257,7 +258,7 @@ class ClinicSearchView(generics.ListAPIView):
     def get_queryset(self):
         return Clinic.objects.filter(status='active')
 
-
+@extend_schema(tags=['Clínicas'])
 class DoctorScheduleView(generics.RetrieveAPIView):
     """
     Vista para obtener horario de un médico.
@@ -273,7 +274,7 @@ class DoctorScheduleView(generics.RetrieveAPIView):
             'appointment_duration': doctor.clinic.appointment_duration
         })
 
-
+@extend_schema(tags=['Clínicas'])
 class AvailableSlotsView(generics.GenericAPIView):
     """
     Vista para consultar horarios disponibles.
@@ -303,7 +304,7 @@ class AvailableSlotsView(generics.GenericAPIView):
         serializer = TimeSlotSerializer(slots, many=True)
         return Response(serializer.data)
 
-
+@extend_schema(tags=['Clínicas'])
 class ClinicStatsView(generics.GenericAPIView):
     """
     Vista para estadísticas de clínica/doctor.

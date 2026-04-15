@@ -6,6 +6,7 @@ from .views import (
     ServiceViewSet,
     ServiceByClinicView,
     SpecialtyListView,
+    ServiceBySpecialtyView
 )
 
 router = DefaultRouter()
@@ -16,4 +17,5 @@ urlpatterns = [
     path('specialties/list/', SpecialtyListView.as_view(), name='specialty-list'),
     path('clinic/<uuid:clinic_id>/', ServiceByClinicView.as_view(), name='services-by-clinic'),
     path('', include(router.urls)),
+    path('specialties/<uuid:specialty_id>/', ServiceBySpecialtyView.as_view(), name='specialty-services'),
 ]

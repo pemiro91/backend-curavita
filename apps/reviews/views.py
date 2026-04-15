@@ -2,6 +2,7 @@
 import logging
 from django.db.models import Avg, Count
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -21,7 +22,7 @@ from .permissions import IsReviewOwnerOrReadOnly
 
 logger = logging.getLogger(__name__)
 
-
+@extend_schema(tags=['Reseñas'])
 class ReviewViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de reseñas.
@@ -80,7 +81,7 @@ class ReviewViewSet(viewsets.ModelViewSet):
 
         return Response({'message': 'Reseña reportada. Será revisada por un moderador.'})
 
-
+@extend_schema(tags=['Reseñas'])
 class ReviewByClinicView(generics.ListAPIView):
     """
     Vista para listar reseñas de una clínica.
@@ -95,7 +96,7 @@ class ReviewByClinicView(generics.ListAPIView):
             status='approved'
         ).select_related('patient')
 
-
+@extend_schema(tags=['Reseñas'])
 class ReviewByDoctorView(generics.ListAPIView):
     """
     Vista para listar reseñas de un doctor.
@@ -110,7 +111,7 @@ class ReviewByDoctorView(generics.ListAPIView):
             status='approved'
         ).select_related('patient')
 
-
+@extend_schema(tags=['Reseñas'])
 class MyReviewsView(generics.ListAPIView):
     """
     Vista para listar reseñas del usuario actual.
@@ -121,7 +122,7 @@ class MyReviewsView(generics.ListAPIView):
     def get_queryset(self):
         return Review.objects.filter(patient=self.request.user)
 
-
+@extend_schema(tags=['Reseñas'])
 class ReviewHelpfulView(generics.GenericAPIView):
     """
     Vista para marcar reseña como útil.
@@ -142,7 +143,7 @@ class ReviewHelpfulView(generics.GenericAPIView):
 
         return Response({'message': 'Marcado como útil.'})
 
-
+@extend_schema(tags=['Reseñas'])
 class ReviewReportView(generics.GenericAPIView):
     """
     Vista para reportar una reseña.
@@ -154,7 +155,7 @@ class ReviewReportView(generics.GenericAPIView):
         logger.info(f"Reseña {pk} reportada: {reason}")
         return Response({'message': 'Reseña reportada.'})
 
-
+@extend_schema(tags=['Reseñas'])
 class PendingReviewsView(generics.ListAPIView):
     """
     Vista para listar reseñas pendientes (moderación).
@@ -167,7 +168,7 @@ class PendingReviewsView(generics.ListAPIView):
             raise PermissionDenied()
         return Review.objects.filter(status='pending')
 
-
+@extend_schema(tags=['Reseñas'])
 class ApproveReviewView(generics.GenericAPIView):
     """
     Vista para aprobar una reseña.
@@ -186,7 +187,7 @@ class ApproveReviewView(generics.GenericAPIView):
 
         return Response({'message': 'Reseña aprobada.'})
 
-
+@extend_schema(tags=['Reseñas'])
 class RejectReviewView(generics.GenericAPIView):
     """
     Vista para rechazar una reseña.

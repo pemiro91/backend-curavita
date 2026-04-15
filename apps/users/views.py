@@ -6,6 +6,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -27,7 +28,7 @@ from .permissions import IsOwnerOrAdmin
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-
+@extend_schema(tags=['Usuarios'])
 class UserViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de usuarios.
@@ -86,7 +87,7 @@ class UserViewSet(viewsets.ModelViewSet):
         user.save()
         return Response({'message': 'Cuenta desactivada correctamente.'})
 
-
+@extend_schema(tags=['Usuarios'])
 class UserRegistrationView(generics.CreateAPIView):
     """
     Vista para registro de nuevos usuarios.
@@ -110,7 +111,7 @@ class UserRegistrationView(generics.CreateAPIView):
             'message': 'Usuario registrado correctamente. Por favor verifica tu email.'
         }, status=status.HTTP_201_CREATED)
 
-
+@extend_schema(tags=['Usuarios'])
 class AddressViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de direcciones.
@@ -132,7 +133,7 @@ class AddressViewSet(viewsets.ModelViewSet):
         address.save()
         return Response({'message': 'Dirección establecida como predeterminada.'})
 
-
+@extend_schema(tags=['Usuarios'])
 class PasswordResetRequestView(generics.GenericAPIView):
     """
     Vista para solicitar reset de contraseña.
@@ -180,7 +181,7 @@ class PasswordResetRequestView(generics.GenericAPIView):
             # No revelar si el email existe o no
             return Response({'message': 'Email de recuperación enviado.'})
 
-
+@extend_schema(tags=['Usuarios'])
 class PasswordResetConfirmView(generics.GenericAPIView):
     """
     Vista para confirmar reset de contraseña.
@@ -218,7 +219,7 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 
         return Response({'message': 'Contraseña actualizada correctamente.'})
 
-
+@extend_schema(tags=['Usuarios'])
 class EmailVerificationView(generics.GenericAPIView):
     """
     Vista para verificar email.
@@ -230,7 +231,7 @@ class EmailVerificationView(generics.GenericAPIView):
         # Esto requiere un modelo de EmailVerificationToken
         return Response({'message': 'Email verificado correctamente.'})
 
-
+@extend_schema(tags=['Usuarios'])
 class ResendVerificationEmailView(generics.GenericAPIView):
     """
     Vista para reenviar email de verificación.
@@ -260,7 +261,7 @@ class ResendVerificationEmailView(generics.GenericAPIView):
 
         return Response({'message': 'Email de verificación reenviado.'})
 
-
+@extend_schema(tags=['Usuarios'])
 class CurrentUserView(generics.RetrieveAPIView):
     """
     Vista para obtener el usuario actual autenticado.

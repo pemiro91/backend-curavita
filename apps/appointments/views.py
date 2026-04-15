@@ -3,6 +3,7 @@ import logging
 from django.db.models import Q
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
@@ -25,7 +26,7 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-
+@extend_schema(tags=['Citas'])
 class AppointmentViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de citas médicas.
@@ -229,7 +230,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         serializer = AppointmentHistorySerializer(history, many=True)
         return Response(serializer.data)
 
-
+@extend_schema(tags=['Citas'])
 class TimeSlotViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de horarios disponibles.
@@ -250,7 +251,7 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]  # Solo clínicas pueden modificar
 
-
+@extend_schema(tags=['Citas'])
 class MyAppointmentsView(generics.ListAPIView):
     """
     Vista para listar citas del usuario actual.
@@ -261,7 +262,7 @@ class MyAppointmentsView(generics.ListAPIView):
     def get_queryset(self):
         return Appointment.objects.filter(patient=self.request.user)
 
-
+@extend_schema(tags=['Citas'])
 class UpcomingAppointmentsView(generics.ListAPIView):
     """
     Vista para listar próximas citas.
@@ -276,7 +277,7 @@ class UpcomingAppointmentsView(generics.ListAPIView):
             status__in=['pending', 'confirmed']
         ).order_by('date', 'start_time')
 
-
+@extend_schema(tags=['Citas'])
 class PastAppointmentsView(generics.ListAPIView):
     """
     Vista para listar citas pasadas.
@@ -292,7 +293,7 @@ class PastAppointmentsView(generics.ListAPIView):
             Q(status__in=['completed', 'cancelled', 'no_show'])
         ).order_by('-date')
 
-
+@extend_schema(tags=['Citas'])
 class CancelAppointmentView(generics.GenericAPIView):
     """
     Vista para cancelar una cita.
@@ -321,7 +322,7 @@ class CancelAppointmentView(generics.GenericAPIView):
 
         return Response({'message': 'Cita cancelada correctamente.'})
 
-
+@extend_schema(tags=['Citas'])
 class RescheduleAppointmentView(generics.GenericAPIView):
     """
     Vista para reagendar una cita.
@@ -347,7 +348,7 @@ class RescheduleAppointmentView(generics.GenericAPIView):
 
         return Response({'message': 'Cita reagendada correctamente.'})
 
-
+@extend_schema(tags=['Citas'])
 class ConfirmAppointmentView(generics.GenericAPIView):
     """
     Vista para confirmar una cita.
@@ -367,7 +368,7 @@ class ConfirmAppointmentView(generics.GenericAPIView):
 
         return Response({'message': 'Cita confirmada correctamente.'})
 
-
+@extend_schema(tags=['Citas'])
 class CompleteAppointmentView(generics.GenericAPIView):
     """
     Vista para completar una cita.
@@ -381,7 +382,7 @@ class CompleteAppointmentView(generics.GenericAPIView):
         appointment.save()
         return Response({'message': 'Cita completada correctamente.'})
 
-
+@extend_schema(tags=['Citas'])
 class CheckInAppointmentView(generics.GenericAPIView):
     """
     Vista para check-in de una cita.
@@ -395,7 +396,7 @@ class CheckInAppointmentView(generics.GenericAPIView):
         appointment.save()
         return Response({'message': 'Check-in realizado correctamente.'})
 
-
+@extend_schema(tags=['Citas'])
 class AppointmentHistoryView(generics.ListAPIView):
     """
     Vista para ver historial de una cita.
@@ -412,7 +413,7 @@ class AppointmentHistoryView(generics.ListAPIView):
         appointment_id = self.kwargs.get('pk')
         return AppointmentHistory.objects.filter(appointment_id=appointment_id)
 
-
+@extend_schema(tags=['Citas'])
 class AvailableSlotsView(generics.GenericAPIView):
     """
     Vista para consultar horarios disponibles.
@@ -445,7 +446,7 @@ class AvailableSlotsView(generics.GenericAPIView):
 
         return Response(TimeSlotSerializer(slots, many=True).data)
 
-
+@extend_schema(tags=['Citas'])
 class AppointmentStatsView(generics.GenericAPIView):
     """
     Vista para estadísticas de citas.

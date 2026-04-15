@@ -1,6 +1,7 @@
 import logging
 
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters
 from rest_framework import viewsets, generics
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -16,7 +17,7 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-
+@extend_schema(tags=['Servicios'])
 class SpecialtyViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de especialidades médicas.
@@ -33,7 +34,7 @@ class SpecialtyViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]  # Solo admin puede modificar
 
-
+@extend_schema(tags=['Servicios'])
 class SpecialtyListView(generics.ListAPIView):
     """
     Vista para listar especialidades (público).
@@ -42,7 +43,7 @@ class SpecialtyListView(generics.ListAPIView):
     serializer_class = SpecialtySerializer
     permission_classes = [AllowAny]
 
-
+@extend_schema(tags=['Servicios'])
 class ServiceViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de servicios.
@@ -65,7 +66,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated(), IsClinicAdminOrReadOnly()]
 
-
+@extend_schema(tags=['Servicios'])
 class ServiceByClinicView(generics.ListAPIView):
     """
     Vista para listar servicios de una clínica específica.
@@ -79,3 +80,15 @@ class ServiceByClinicView(generics.ListAPIView):
             clinic_id=clinic_id,
             is_active=True
         ).select_related('specialty')
+
+
+# apps/services/views.py - Agregar si falta
+@extend_schema(tags=['Servicios'])
+class ServiceBySpecialtyView(generics.ListAPIView):
+    """Servicios por especialidad"""
+    serializer_class = ServiceSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        specialty_id = self.kwargs.get('specialty_id')
+        return Service.objects.filter(specialty_id=specialty_id, is_active=True)
