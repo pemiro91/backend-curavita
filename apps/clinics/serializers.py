@@ -2,6 +2,8 @@ from rest_framework import serializers
 
 from .models import Clinic, Doctor, ClinicImage
 from apps.services.serializers import SpecialtySerializer
+import phonenumbers
+from phonenumber_field.phonenumber import PhoneNumber
 
 
 class ClinicImageSerializer(serializers.ModelSerializer):
@@ -127,7 +129,7 @@ class ClinicCreateSerializer(serializers.ModelSerializer):
         child=serializers.EmailField(),
         write_only=True,
         required=False,
-        help_text="Lista de emails de administradores adicionales"
+        default=list  # Importante: lista vacía por defecto
     )
 
     class Meta:
@@ -147,14 +149,37 @@ class ClinicCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Ya existe una clínica con este email.")
         return value
 
-    def validate_name(self, value):
-        """Validar nombre único en la misma ciudad."""
-        # Esto se validará en create/update considerando la ciudad
-        return value
+    def validate_phone(self, value):
+        """Normalizar número de teléfono."""
+        if not value:
+            raise serializers.ValidationError("El teléfono es requerido.")
+
+        # Si ya tiene formato internacional, validarlo
+        if value.startswith('+'):
+            try:
+                parsed = phonenumbers.parse(value, None)
+                if not phonenumbers.is_valid_number(parsed):
+                    raise serializers.ValidationError("Número inválido.")
+                return value
+            except:
+                raise serializers.ValidationError("Formato inválido. Use: +5353920566")
+
+        # Si no tiene +, intentar con códigos de país comunes
+        country_codes = ['53', '52', '1', '34', '57']  # Cuba, México, USA, España, Colombia
+        for code in country_codes:
+            try:
+                full_number = f"+{code}{value}"
+                parsed = phonenumbers.parse(full_number, None)
+                if phonenumbers.is_valid_number(parsed):
+                    return full_number
+            except:
+                continue
+
+        # Si ninguno funciona, asumir Cuba (+53) por defecto
+        return f"+53{value}"
 
     def validate(self, attrs):
         """Validaciones generales."""
-        # Validar horarios
         opening = attrs.get('opening_time')
         closing = attrs.get('closing_time')
 
@@ -163,49 +188,68 @@ class ClinicCreateSerializer(serializers.ModelSerializer):
                 {"closing_time": "La hora de cierre debe ser posterior a la de apertura."}
             )
 
-        # Validar coordenadas si se proporcionan
+        # Validar coordenadas: ambas o ninguna
         lat = attrs.get('latitude')
         lng = attrs.get('longitude')
 
         if (lat is not None and lng is None) or (lat is None and lng is not None):
             raise serializers.ValidationError(
-                "Debes proporcionar ambas coordenadas (latitud y longitud) o ninguna."
+                {"latitude": "Debes proporcionar ambas coordenadas o ninguna."}
             )
 
         if lat is not None:
-            if not (-90 <= lat <= 90):
+            try:
+                lat_val = float(lat)
+                lng_val = float(lng)
+                if not (-90 <= lat_val <= 90):
+                    raise serializers.ValidationError(
+                        {"latitude": "La latitud debe estar entre -90 y 90."}
+                    )
+                if not (-180 <= lng_val <= 180):
+                    raise serializers.ValidationError(
+                        {"longitude": "La longitud debe estar entre -180 y 180."}
+                    )
+            except (TypeError, ValueError):
                 raise serializers.ValidationError(
-                    {"latitude": "La latitud debe estar entre -90 y 90."}
-                )
-            if not (-180 <= lng <= 180):
-                raise serializers.ValidationError(
-                    {"longitude": "La longitud debe estar entre -180 y 180."}
+                    {"latitude": "Coordenadas inválidas."}
                 )
 
         return attrs
 
     def create(self, validated_data):
-        """Crear clínica con el usuario actual como admin."""
+        """Crear clínica con slug único."""
+        import itertools
+        from django.utils.text import slugify
+
+        # Generar slug único
+        base_slug = slugify(validated_data['name'])
+        slug = base_slug
+
+        for i in itertools.count(1):
+            if not Clinic.objects.filter(slug=slug).exists():
+                break
+            slug = f"{base_slug}-{i}"
+
+        validated_data['slug'] = slug
+        validated_data['status'] = 'pending'
+
+        # Remover admin_emails antes de crear
         admin_emails = validated_data.pop('admin_emails', [])
 
         # Crear clínica
-        clinic = Clinic.objects.create(
-            **validated_data,
-            status='pending'  # Requiere aprobación
-        )
+        clinic = Clinic.objects.create(**validated_data)
 
         # Añadir creador como admin
         clinic.admins.add(self.context['request'].user)
 
-        # Añadir admins adicionales si existen
+        # Añadir admins adicionales
         from apps.users.models import User
         for email in admin_emails:
             try:
                 user = User.objects.get(email=email)
                 clinic.admins.add(user)
             except User.DoesNotExist:
-                # Opcional: enviar invitación
-                pass
+                pass  # Ignorar si no existe
 
         return clinic
 
