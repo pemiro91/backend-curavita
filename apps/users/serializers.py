@@ -47,7 +47,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         fields = [
             'email', 'first_name', 'last_name', 'password',
             'password_confirm', 'phone', 'document_number',
-            'date_of_birth', 'gender', 'preferred_language'
+            'date_of_birth', 'gender', 'preferred_language', 'avatar'
         ]
 
     def validate(self, attrs):
@@ -82,14 +82,66 @@ class UserCreateSerializer(serializers.ModelSerializer):
         return 'es'
 
 
+# serializers.py
 class UserUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer para actualizar perfil de usuario.
+    """
+    # PhoneNumberField es especial - usar CharField para evitar validación estricta
+    phone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
+
     class Meta:
         model = User
         fields = [
             'first_name', 'last_name', 'phone',
             'document_number', 'date_of_birth', 'gender',
-            'preferred_language', 'receive_notifications'
+            'preferred_language', 'receive_notifications', 'avatar'
         ]
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'document_number': {'required': False, 'allow_blank': True},
+            'date_of_birth': {'required': False, 'allow_null': True},
+            'gender': {'required': False, 'allow_blank': True},
+            'preferred_language': {'required': False},
+            'receive_notifications': {'required': False},
+            'avatar': {'required': False, 'allow_null': True},
+        }
+
+    def validate_phone(self, value):
+        """PhoneNumberField requiere formato internacional o None"""
+        if not value or value == "":
+            return None
+
+        # Si ya tiene formato internacional, dejarlo pasar
+        if value.startswith('+'):
+            return value
+
+        # Si no, agregar +53 (Cuba) por defecto o el código que uses
+        # O simplemente devolver None si no es válido
+        try:
+            # Intentar validar con phonenumbers si está instalado
+            import phonenumbers
+            parsed = phonenumbers.parse(value, 'CU')  # Default Cuba
+            if phonenumbers.is_valid_number(parsed):
+                return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        except:
+            pass
+
+        # Si no se puede validar, guardar como string o None
+        return value if len(value) > 5 else None
+
+    def validate(self, attrs):
+        """Validación general"""
+        # Asegurar que phone sea None si está vacío
+        if 'phone' in attrs and (attrs['phone'] == '' or attrs['phone'] is None):
+            attrs['phone'] = None
+
+        return attrs
 
 
 class ChangePasswordSerializer(serializers.Serializer):

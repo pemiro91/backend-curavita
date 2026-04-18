@@ -97,6 +97,10 @@ class Clinic(models.Model):
             self.review_count = reviews.count()
             self.save(update_fields=['rating', 'review_count'])
 
+    @property
+    def is_active(self):
+        return self.status == 'active'
+
 
 class Doctor(models.Model):
     """Médico de la clínica"""

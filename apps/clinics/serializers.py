@@ -1,9 +1,8 @@
+import phonenumbers
 from rest_framework import serializers
 
-from .models import Clinic, Doctor, ClinicImage
 from apps.services.serializers import SpecialtySerializer
-import phonenumbers
-from phonenumber_field.phonenumber import PhoneNumber
+from .models import Clinic, Doctor, ClinicImage
 
 
 class ClinicImageSerializer(serializers.ModelSerializer):
@@ -19,9 +18,12 @@ class ClinicListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Clinic
         fields = [
-            'id', 'name', 'slug', 'city', 'state',
-            'rating', 'review_count', 'logo', 'distance',
-            'opening_time', 'closing_time'
+            'id', 'name', 'email', 'phone', 'website', 'description',
+            'street', 'number', 'slug', 'city', 'state',
+            'complement', 'neighborhood', 'zip_code', 'latitude',
+            'longitude', 'appointment_duration', 'rating',
+            'review_count', 'logo', 'distance', 'opening_time',
+            'closing_time', 'is_active', 'allow_online_booking', 'cover_image'
         ]
 
 
@@ -40,7 +42,7 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
             'logo', 'cover_image', 'images', 'rating', 'review_count',
             'opening_time', 'closing_time', 'appointment_duration',
             'allow_online_booking', 'services', 'doctors',
-            'created_at'
+            'created_at', 'is_active'
         ]
 
     def get_services(self, obj):

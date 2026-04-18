@@ -1,20 +1,21 @@
 import logging
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail
-from django.conf import settings
-from django.utils import timezone
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from drf_spectacular.utils import extend_schema
-from rest_framework import viewsets, status, generics
+from rest_framework import generics, status
+from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.exceptions import ValidationError
 
 from .models import Address
+from .permissions import IsOwnerOrAdmin
 from .serializers import (
     UserSerializer,
     UserCreateSerializer,
@@ -23,10 +24,10 @@ from .serializers import (
     ChangePasswordSerializer,
     PasswordResetSerializer,
 )
-from .permissions import IsOwnerOrAdmin
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
 
 @extend_schema(tags=['Usuarios'])
 class UserViewSet(viewsets.ModelViewSet):
@@ -87,6 +88,7 @@ class UserViewSet(viewsets.ModelViewSet):
         user.save()
         return Response({'message': 'Cuenta desactivada correctamente.'})
 
+
 @extend_schema(tags=['Usuarios'])
 class UserRegistrationView(generics.CreateAPIView):
     """
@@ -111,6 +113,7 @@ class UserRegistrationView(generics.CreateAPIView):
             'message': 'Usuario registrado correctamente. Por favor verifica tu email.'
         }, status=status.HTTP_201_CREATED)
 
+
 @extend_schema(tags=['Usuarios'])
 class AddressViewSet(viewsets.ModelViewSet):
     """
@@ -132,6 +135,7 @@ class AddressViewSet(viewsets.ModelViewSet):
         address.is_default = True
         address.save()
         return Response({'message': 'Dirección establecida como predeterminada.'})
+
 
 @extend_schema(tags=['Usuarios'])
 class PasswordResetRequestView(generics.GenericAPIView):
@@ -181,6 +185,7 @@ class PasswordResetRequestView(generics.GenericAPIView):
             # No revelar si el email existe o no
             return Response({'message': 'Email de recuperación enviado.'})
 
+
 @extend_schema(tags=['Usuarios'])
 class PasswordResetConfirmView(generics.GenericAPIView):
     """
@@ -219,6 +224,7 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 
         return Response({'message': 'Contraseña actualizada correctamente.'})
 
+
 @extend_schema(tags=['Usuarios'])
 class EmailVerificationView(generics.GenericAPIView):
     """
@@ -230,6 +236,7 @@ class EmailVerificationView(generics.GenericAPIView):
         # Implementar lógica de verificación con token
         # Esto requiere un modelo de EmailVerificationToken
         return Response({'message': 'Email verificado correctamente.'})
+
 
 @extend_schema(tags=['Usuarios'])
 class ResendVerificationEmailView(generics.GenericAPIView):
@@ -261,13 +268,29 @@ class ResendVerificationEmailView(generics.GenericAPIView):
 
         return Response({'message': 'Email de verificación reenviado.'})
 
+
 @extend_schema(tags=['Usuarios'])
-class CurrentUserView(generics.RetrieveAPIView):
+class CurrentUserView(generics.RetrieveUpdateAPIView):
     """
-    Vista para obtener el usuario actual autenticado.
+    Vista para obtener y actualizar el usuario actual autenticado.
     """
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
 
     def get_object(self):
         return self.request.user
+
+    def patch(self, request, *args, **kwargs):
+        user = self.get_object()
+        serializer = UserUpdateSerializer(user, data=request.data, partial=True)
+
+        if not serializer.is_valid():
+            print("ERRORES:", serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer.save()
+        return Response(UserSerializer(user).data)
+
+    def put(self, request, *args, **kwargs):
+        """Sobrescribir perfil completo (mismo comportamiento que patch para simplificar)"""
+        return self.patch(request, *args, **kwargs)

@@ -8,6 +8,7 @@ from rest_framework import filters
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
@@ -134,6 +135,11 @@ class ClinicViewSet(viewsets.ModelViewSet):
         clinic.status = 'active'
         clinic.save()
         return Response({'message': 'Clínica aprobada correctamente.'})
+
+    def get_parser_classes(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return [MultiPartParser, FormParser, JSONParser]
+        return [JSONParser]
 
 @extend_schema(tags=['Clínicas'])
 class DoctorViewSet(viewsets.ModelViewSet):
