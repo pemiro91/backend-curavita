@@ -6,7 +6,9 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
+from rest_framework import filters
 from rest_framework import generics, status
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -20,6 +22,7 @@ from .serializers import (
     UserSerializer,
     UserCreateSerializer,
     UserUpdateSerializer,
+    UserAdminCreateSerializer,
     AddressSerializer,
     ChangePasswordSerializer,
     PasswordResetSerializer,
@@ -35,58 +38,82 @@ class UserViewSet(viewsets.ModelViewSet):
     ViewSet para gestión de usuarios.
     """
     queryset = User.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['user_type', 'is_active', 'is_verified']
+    search_fields = ['email', 'first_name', 'last_name']
+    ordering_fields = ['date_joined', 'email']
 
     def get_serializer_class(self):
         if self.action == 'create':
             return UserCreateSerializer
-        elif self.action in ['update', 'partial_update']:
+        if self.action == 'admin_create':
+            return UserAdminCreateSerializer
+        if self.action in ['update', 'partial_update']:
             return UserUpdateSerializer
         return UserSerializer
 
     def get_permissions(self):
         if self.action == 'create':
             return [AllowAny()]
-        elif self.action in ['update', 'partial_update', 'destroy']:
+        if self.action == 'admin_create':
+            return [IsAuthenticated()]
+        if self.action in ['update', 'partial_update', 'destroy']:
             return [IsAuthenticated(), IsOwnerOrAdmin()]
         return [IsAuthenticated()]
 
     def get_queryset(self):
         user = self.request.user
-        if user.user_type == 'super_admin':
-            return User.objects.all()
+        if not user.is_authenticated:
+            return User.objects.none()
+        qs = User.objects.all()
+        if user.user_type in ('super_admin', 'clinic_admin'):
+            has_profile = self.request.query_params.get('has_doctor_profile')
+            if has_profile is not None:
+                if has_profile.lower() in ('false', '0'):
+                    qs = qs.filter(doctor_profile__isnull=True)
+                elif has_profile.lower() in ('true', '1'):
+                    qs = qs.filter(doctor_profile__isnull=False)
+            return qs
         return User.objects.filter(id=user.id)
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def me(self, request):
-        """Obtener información del usuario actual"""
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def change_password(self, request):
-        """Cambiar contraseña del usuario"""
         serializer = ChangePasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         user = request.user
         if not user.check_password(serializer.validated_data['old_password']):
             return Response(
                 {'old_password': ['Contraseña actual incorrecta.']},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         user.set_password(serializer.validated_data['new_password'])
         user.save()
-
         return Response({'message': 'Contraseña actualizada correctamente.'})
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def deactivate(self, request):
-        """Desactivar cuenta de usuario"""
         user = request.user
         user.is_active = False
         user.save()
         return Response({'message': 'Cuenta desactivada correctamente.'})
+
+    @action(detail=False, methods=['post'], url_path='admin-create', permission_classes=[IsAuthenticated])
+    def admin_create(self, request):
+        """Crear usuario desde panel admin (no requiere password_confirm)."""
+        if request.user.user_type not in ('super_admin', 'clinic_admin'):
+            return Response(
+                {'detail': 'No tienes permiso para esta acción.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        serializer = UserAdminCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
 @extend_schema(tags=['Usuarios'])
