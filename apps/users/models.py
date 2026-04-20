@@ -30,7 +30,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(_('last name'), max_length=150)
 
     # Campos adicionales
-    phone = PhoneNumberField(_('phone number'), blank=True, null=True)
+    phone = models.CharField(_('phone'), max_length=20)
     document_number = models.CharField(_('document number'), max_length=20, blank=True)
     date_of_birth = models.DateField(_('date of birth'), null=True, blank=True)
     gender = models.CharField(_('gender'), max_length=20, choices=Gender.choices, blank=True)

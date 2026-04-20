@@ -1,5 +1,32 @@
+import nh3
 from rest_framework import serializers
 from .models import Specialty, Service
+
+ALLOWED_TAGS = {
+    'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'del',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+    'a', 'span', 'div'
+}
+
+ALLOWED_ATTRIBUTES = {
+    'a': {'href', 'title', 'target'},
+    'span': {'style'},
+    'p': {'style'},
+    'div': {'style'},
+}
+
+
+def sanitize_html(value):
+    """Limpia el HTML permitiendo solo etiquetas seguras."""
+    if not value:
+        return value
+    return nh3.clean(
+        value,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        url_schemes={'http', 'https', 'mailto'}
+    )
 
 
 class SpecialtySerializer(serializers.ModelSerializer):
@@ -68,7 +95,7 @@ class ServiceSerializer(serializers.ModelSerializer):
             'id', 'name', 'clinic', 'clinic_name',
             'specialty', 'specialty_name', 'service_type',
             'price', 'duration_minutes', 'duration_display',
-            'is_active', 'requires_preparation'
+            'is_active', 'requires_preparation', 'icon'
         ]
         # read_only_fields = ['slug']
 
@@ -84,11 +111,11 @@ class ServiceDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
         fields = [
-            'id', 'name',  'description', 'clinic',
+            'id', 'name', 'description', 'clinic',
             'specialty', 'service_type', 'price', 'duration_minutes',
             'preparation_instructions', 'is_active',
             'requires_preparation',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'icon'
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -102,15 +129,23 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
     """
     Serializer para crear nuevos servicios.
     """
+    description = serializers.CharField(allow_blank=True, required=False, trim_whitespace=False)
+    preparation_instructions = serializers.CharField(allow_blank=True, required=False, trim_whitespace=False)
 
     class Meta:
         model = Service
         fields = [
             'id', 'name', 'description', 'clinic', 'specialty',
             'service_type', 'price', 'duration_minutes',
-            'preparation_instructions', 'requires_preparation',
+            'preparation_instructions', 'requires_preparation', 'icon'
 
         ]
+
+    def validate_description(self, value):
+        return sanitize_html(value)
+
+    def validate_preparation_instructions(self, value):
+        return sanitize_html(value)
 
     def validate_price(self, value):
         """Validar que el precio sea positivo."""
@@ -164,15 +199,22 @@ class ServiceUpdateSerializer(serializers.ModelSerializer):
     """
     Serializer para actualizar servicios existentes.
     """
+    description = serializers.CharField(allow_blank=True, required=False, trim_whitespace=False)
+    preparation_instructions = serializers.CharField(allow_blank=True, required=False, trim_whitespace=False)
 
     class Meta:
         model = Service
         fields = [
             'name', 'description', 'specialty', 'price',
             'duration_minutes', 'preparation_instructions',
-            'requires_preparation',
-            'is_active'
+            'requires_preparation', 'clinic', 'is_active', 'icon'
         ]
+
+    def validate_description(self, value):
+        return sanitize_html(value)
+
+    def validate_preparation_instructions(self, value):
+        return sanitize_html(value)
 
     def validate_price(self, value):
         if value < 0:

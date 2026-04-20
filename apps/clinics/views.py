@@ -1,5 +1,6 @@
 import logging
 
+from django.db import models
 from django.db.models import Q
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
@@ -22,18 +23,23 @@ from .serializers import (
     DoctorDetailSerializer,
     DoctorCreateSerializer,
     ClinicImageSerializer,
+    DoctorUpdateSerializer,
 )
+from ..appointments.serializers import TimeSlotSerializer
+from ..appointments.utils import generate_slots_from_schedule
 
 logger = logging.getLogger(__name__)
+
 
 @extend_schema(tags=['Clínicas'])
 class ClinicViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de clínicas.
     """
-    queryset = Clinic.objects.filter(status__in=['active', 'pending'])
+    queryset = Clinic.objects.filter(status__in=['active', 'pending', 'suspended', 'inactive'])
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['city', 'state', 'status']
+    filterset_fields = ['city', 'state', 'status', 'services', 'status']
+    lookup_field = 'slug'
     search_fields = ['name', 'description', 'city', 'neighborhood']
     ordering_fields = ['name', 'rating', 'created_at', 'opening_time']
     ordering = ['-rating', 'name']
@@ -43,12 +49,28 @@ class ClinicViewSet(viewsets.ModelViewSet):
             return ClinicListSerializer
         elif self.action == 'create':
             return ClinicCreateSerializer
+        elif self.action == 'retrieve':
+            return ClinicDetailSerializer
         return ClinicDetailSerializer
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve', 'nearby', 'search']:
             return [AllowAny()]
         return [IsAuthenticated(), IsClinicAdminOrReadOnly()]
+
+    def get_queryset(self):
+        """Sobrescribir para filtrar por servicio si se envía el parámetro"""
+        queryset = super().get_queryset()
+        user = self.request.user
+
+        # Filtro por servicio específico
+        if self.action == 'list':
+            if not user.is_authenticated:
+                return queryset.filter(status='active')
+            if not hasattr(user, 'user_type') or user.user_type not in ['clinic_admin', 'super_admin']:
+                return queryset.filter(status='active')
+
+        return queryset
 
     def perform_create(self, serializer):
         clinic = serializer.save()
@@ -141,14 +163,41 @@ class ClinicViewSet(viewsets.ModelViewSet):
             return [MultiPartParser, FormParser, JSONParser]
         return [JSONParser]
 
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def change_status(self, request, slug=None):
+        """Cambiar estado de la clínica (solo super admin)"""
+        if request.user.user_type != 'super_admin':
+            raise PermissionDenied('Solo super admin puede cambiar el estado.')
+
+        clinic = self.get_object()
+        new_status = request.data.get('status')
+
+        valid_statuses = ['pending', 'active', 'suspended', 'inactive']
+        if new_status not in valid_statuses:
+            return Response(
+                {'error': f'Estado inválido. Opciones: {valid_statuses}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        clinic.status = new_status
+        clinic.save()
+
+        return Response({
+            'message': f'Estado cambiado a {new_status}',
+            'clinic': ClinicDetailSerializer(clinic).data
+        })
+
+
+# apps/clinics/views.py - Actualizar DoctorViewSet
+
 @extend_schema(tags=['Clínicas'])
 class DoctorViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de médicos.
     """
-    queryset = Doctor.objects.filter(status='active')
+    queryset = Doctor.objects.all()  # Mostrar todos para admin
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['clinic', 'specialty', 'clinic__city']
+    filterset_fields = ['clinic', 'specialty', 'clinic__city', 'status']
     search_fields = ['user__first_name', 'user__last_name', 'bio']
 
     def get_serializer_class(self):
@@ -156,6 +205,8 @@ class DoctorViewSet(viewsets.ModelViewSet):
             return DoctorListSerializer
         elif self.action == 'create':
             return DoctorCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return DoctorUpdateSerializer
         return DoctorDetailSerializer
 
     def get_permissions(self):
@@ -163,11 +214,32 @@ class DoctorViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated(), IsClinicAdmin()]
 
+    def get_queryset(self):
+        """Filtrar según el usuario"""
+        queryset = super().get_queryset()
+        user = self.request.user
+
+        # Si es paciente o anónimo, solo ver activos
+        if not user.is_authenticated or user.user_type == 'patient':
+            return queryset.filter(status='active')
+
+        # Si es doctor, ver su propio perfil y compañeros de clínica
+        if user.user_type == 'doctor':
+            return queryset.filter(
+                models.Q(user=user) | models.Q(clinic__admins=user)
+            ).distinct()
+
+        # Admin de clínica: ver todos los de su clínica
+        if user.user_type == 'clinic_admin':
+            return queryset.filter(clinic__admins=user)
+
+        # Super admin: ver todos
+        return queryset
+
     @action(detail=True, methods=['get'])
     def available_slots(self, request, pk=None):
         """Obtener horarios disponibles de un médico"""
         from apps.appointments.models import TimeSlot
-        from apps.appointments.serializers import TimeSlotSerializer
 
         doctor = self.get_object()
         date = request.query_params.get('date')
@@ -192,7 +264,11 @@ class DoctorViewSet(viewsets.ModelViewSet):
     def schedule(self, request, pk=None):
         """Obtener horario semanal del médico"""
         doctor = self.get_object()
-        return Response(doctor.schedule)
+        return Response({
+            'doctor_id': doctor.id,
+            'schedule': doctor.schedule,
+            'appointment_duration': doctor.clinic.appointment_duration
+        })
 
     @action(detail=True, methods=['put'], permission_classes=[IsAuthenticated])
     def update_schedule(self, request, pk=None):
@@ -202,9 +278,39 @@ class DoctorViewSet(viewsets.ModelViewSet):
         if request.user != doctor.user and request.user not in doctor.clinic.admins.all():
             raise PermissionDenied('No tienes permiso para editar este horario.')
 
-        doctor.schedule = request.data.get('schedule', doctor.schedule)
-        doctor.save()
-        return Response({'message': 'Horario actualizado correctamente.'})
+        schedule = request.data.get('schedule')
+        if schedule:
+            serializer = DoctorUpdateSerializer(doctor, data={'schedule': schedule}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            # Generar slots automáticamente para las próximas 2 semanas
+            generate_slots_from_schedule(doctor)
+
+            return Response({'message': 'Horario actualizado y slots generados.'})
+
+        return Response({'error': 'Se requiere el campo schedule.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def generate_slots(self, request, pk=None):
+        """Generar slots manualmente para un rango de fechas"""
+        doctor = self.get_object()
+
+        if request.user != doctor.user and request.user not in doctor.clinic.admins.all():
+            raise PermissionDenied()
+
+        start_date = request.data.get('start_date')
+        end_date = request.data.get('end_date')
+
+        if not start_date or not end_date:
+            return Response(
+                {'error': 'Se requieren start_date y end_date.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        count = generate_slots_from_schedule(doctor, start_date, end_date)
+        return Response({'message': f'{count} slots generados correctamente.'})
+
 
 @extend_schema(tags=['Clínicas'])
 class ClinicImageViewSet(viewsets.ModelViewSet):
@@ -222,6 +328,7 @@ class ClinicImageViewSet(viewsets.ModelViewSet):
         clinic_id = self.kwargs.get('clinic_pk')
         clinic = Clinic.objects.get(id=clinic_id)
         serializer.save(clinic=clinic)
+
 
 @extend_schema(tags=['Clínicas'])
 class NearbyClinicsView(generics.ListAPIView):
@@ -250,6 +357,7 @@ class NearbyClinicsView(generics.ListAPIView):
         serializer = self.get_serializer(clinics, many=True)
         return Response(serializer.data)
 
+
 @extend_schema(tags=['Clínicas'])
 class ClinicSearchView(generics.ListAPIView):
     """
@@ -263,6 +371,7 @@ class ClinicSearchView(generics.ListAPIView):
 
     def get_queryset(self):
         return Clinic.objects.filter(status='active')
+
 
 @extend_schema(tags=['Clínicas'])
 class DoctorScheduleView(generics.RetrieveAPIView):
@@ -279,6 +388,7 @@ class DoctorScheduleView(generics.RetrieveAPIView):
             'schedule': doctor.schedule,
             'appointment_duration': doctor.clinic.appointment_duration
         })
+
 
 @extend_schema(tags=['Clínicas'])
 class AvailableSlotsView(generics.GenericAPIView):
@@ -309,6 +419,7 @@ class AvailableSlotsView(generics.GenericAPIView):
 
         serializer = TimeSlotSerializer(slots, many=True)
         return Response(serializer.data)
+
 
 @extend_schema(tags=['Clínicas'])
 class ClinicStatsView(generics.GenericAPIView):

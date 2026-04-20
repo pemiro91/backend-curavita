@@ -32,6 +32,8 @@ urlpatterns = [
     path('nearby/', NearbyClinicsView.as_view(), name='clinics-nearby'),
     path('search/', ClinicSearchView.as_view(), name='clinics-search'),
 
+    # path('<slug:slug>/', ClinicDetailView.as_view(), name='clinic-detail'),
+
     # Rutas específicas de doctores (vistas adicionales)
     path('doctors/<uuid:pk>/schedule/',
          DoctorScheduleView.as_view(), name='doctor-schedule'),

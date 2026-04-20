@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from apps.services.serializers import SpecialtySerializer
 from .models import Clinic, Doctor, ClinicImage
+from apps.users.models import User
 
 
 class ClinicImageSerializer(serializers.ModelSerializer):
@@ -14,6 +15,7 @@ class ClinicImageSerializer(serializers.ModelSerializer):
 class ClinicListSerializer(serializers.ModelSerializer):
     """Serializer para listado de clínicas (resumido)"""
     distance = serializers.FloatField(read_only=True, required=False)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:
         model = Clinic
@@ -23,7 +25,8 @@ class ClinicListSerializer(serializers.ModelSerializer):
             'complement', 'neighborhood', 'zip_code', 'latitude',
             'longitude', 'appointment_duration', 'rating',
             'review_count', 'logo', 'distance', 'opening_time',
-            'closing_time', 'is_active', 'allow_online_booking', 'cover_image'
+            'closing_time', 'is_active', 'allow_online_booking', 'cover_image',
+            'status', 'status_display'
         ]
 
 
@@ -60,12 +63,14 @@ class DoctorListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='user.full_name', read_only=True)
     specialty_name = serializers.CharField(source='specialty.name', read_only=True)
     avatar = serializers.ImageField(source='user.avatar', read_only=True)
+    clinic_name = serializers.CharField(source='clinic.name', read_only=True)
 
     class Meta:
         model = Doctor
         fields = [
             'id', 'full_name', 'specialty_name', 'avatar',
-            'experience_years', 'consultation_fee', 'rating'
+            'experience_years', 'consultation_fee', 'rating',
+            'clinic_name', 'status'
         ]
 
 
@@ -73,16 +78,16 @@ class DoctorDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado de médico"""
     user = serializers.SerializerMethodField()
     specialty = SpecialtySerializer(read_only=True)
-    secondary_specialties = SpecialtySerializer(many=True, read_only=True)
     clinic = ClinicListSerializer(read_only=True)
+    schedule_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Doctor
         fields = [
             'id', 'user', 'license_number', 'specialty',
             'secondary_specialties', 'bio', 'education',
-            'experience_years', 'schedule', 'consultation_fee',
-            'clinic', 'rating', 'review_count', 'status'
+            'experience_years', 'schedule', 'schedule_display',
+            'consultation_fee', 'clinic', 'rating', 'review_count', 'status'
         ]
 
     def get_user(self, obj):
@@ -94,21 +99,39 @@ class DoctorDetailSerializer(serializers.ModelSerializer):
             'avatar': obj.user.avatar.url if obj.user.avatar else None,
         }
 
+    def get_schedule_display(self, obj):
+        """Convertir schedule JSON a formato legible"""
+        schedule = obj.schedule or {}
+        days_map = {
+            'monday': 'Lunes', 'tuesday': 'Martes', 'wednesday': 'Miércoles',
+            'thursday': 'Jueves', 'friday': 'Viernes', 'saturday': 'Sábado', 'sunday': 'Domingo'
+        }
+        result = []
+        for day, slots in schedule.items():
+            if slots:
+                result.append({
+                    'day': days_map.get(day, day),
+                    'day_key': day,
+                    'slots': slots
+                })
+        return result
+
 
 class DoctorCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear médico"""
     user_id = serializers.UUIDField(write_only=True)
+    schedule = serializers.JSONField(required=False, default=dict)
 
     class Meta:
         model = Doctor
         fields = [
-            'user_id', 'license_number', 'specialty',
+            'user_id', 'clinic', 'license_number', 'specialty',
             'bio', 'education', 'experience_years',
             'schedule', 'consultation_fee'
         ]
 
     def validate_user_id(self, value):
-        from apps.users.models import User
+
         try:
             user = User.objects.get(id=value)
             if user.user_type != 'doctor':
@@ -118,6 +141,80 @@ class DoctorCreateSerializer(serializers.ModelSerializer):
             return value
         except User.DoesNotExist:
             raise serializers.ValidationError("Usuario no encontrado.")
+
+    def validate_schedule(self, value):
+        """Validar formato del horario"""
+        if not value:
+            return {}
+
+        valid_days = {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("El horario debe ser un objeto JSON.")
+
+        for day, slots in value.items():
+            if day not in valid_days:
+                raise serializers.ValidationError(f"Día inválido: {day}")
+            if not isinstance(slots, list):
+                raise serializers.ValidationError(f"Los slots de {day} deben ser una lista.")
+            for slot in slots:
+                if not isinstance(slot, dict) or 'start' not in slot or 'end' not in slot:
+                    raise serializers.ValidationError(f"Formato de slot inválido en {day}")
+
+        return value
+
+    def create(self, validated_data):
+        user_id = validated_data.pop('user_id')
+        from apps.users.models import User
+        user = User.objects.get(id=user_id)
+
+        doctor = Doctor.objects.create(user=user, **validated_data)
+        return doctor
+
+
+class DoctorUpdateSerializer(serializers.ModelSerializer):
+    """Serializer para actualizar médico"""
+    schedule = serializers.JSONField(required=False)
+
+    class Meta:
+        model = Doctor
+        fields = [
+            'license_number', 'specialty', 'bio', 'education',
+            'experience_years', 'schedule', 'consultation_fee', 'status'
+        ]
+
+    def validate_user_id(self, value):
+        
+        try:
+            user = User.objects.get(id=value)
+            if user.user_type != 'doctor':
+                raise serializers.ValidationError("El usuario no es un médico.")
+            if hasattr(user, 'doctor_profile'):
+                raise serializers.ValidationError("El usuario ya tiene un perfil de médico.")
+            return value
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Usuario no encontrado.")
+
+    def validate_schedule(self, value):
+        """Validar formato del horario"""
+        if not value:
+            return {}
+
+        valid_days = {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("El horario debe ser un objeto JSON.")
+
+        for day, slots in value.items():
+            if day not in valid_days:
+                raise serializers.ValidationError(f"Día inválido: {day}")
+            if not isinstance(slots, list):
+                raise serializers.ValidationError(f"Los slots de {day} deben ser una lista.")
+            for slot in slots:
+                if not isinstance(slot, dict) or 'start' not in slot or 'end' not in slot:
+                    raise serializers.ValidationError(f"Formato de slot inválido en {day}")
+
+        return value
 
 
 # Añadir a tu serializers.py de Clinics
@@ -152,33 +249,28 @@ class ClinicCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_phone(self, value):
-        """Normalizar número de teléfono."""
+        """Validar teléfono con formato internacional."""
         if not value:
             raise serializers.ValidationError("El teléfono es requerido.")
 
-        # Si ya tiene formato internacional, validarlo
-        if value.startswith('+'):
-            try:
-                parsed = phonenumbers.parse(value, None)
-                if not phonenumbers.is_valid_number(parsed):
-                    raise serializers.ValidationError("Número inválido.")
-                return value
-            except:
-                raise serializers.ValidationError("Formato inválido. Use: +5353920566")
+        # Limpiar
+        value = value.strip().replace(" ", "")
 
-        # Si no tiene +, intentar con códigos de país comunes
-        country_codes = ['53', '52', '1', '34', '57']  # Cuba, México, USA, España, Colombia
-        for code in country_codes:
-            try:
-                full_number = f"+{code}{value}"
-                parsed = phonenumbers.parse(full_number, None)
-                if phonenumbers.is_valid_number(parsed):
-                    return full_number
-            except:
-                continue
+        # Debe empezar con + y tener solo dígitos después
+        if not value.startswith('+'):
+            raise serializers.ValidationError("El número debe incluir el prefijo internacional (ej: +5353920566)")
 
-        # Si ninguno funciona, asumir Cuba (+53) por defecto
-        return f"+53{value}"
+        digits = value[1:].replace("-", "")
+        if not digits.isdigit():
+            raise serializers.ValidationError("El número solo debe contener dígitos después del +")
+
+        if len(digits) < 7:
+            raise serializers.ValidationError("Número demasiado corto.")
+
+        if len(digits) > 15:
+            raise serializers.ValidationError("Número demasiado largo.")
+
+        return value
 
     def validate(self, attrs):
         """Validaciones generales."""

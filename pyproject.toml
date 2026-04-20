@@ -16,6 +16,7 @@ dependencies = [
     "drf-nested-routers>=0.95.0",
     "drf-spectacular>=0.29.0",
     "geopy>=2.4.1",
+    "nh3>=0.3.4",
     "packaging==26.1",
     "phonenumbers==9.0.28",
     "pillow>=12.2.0",

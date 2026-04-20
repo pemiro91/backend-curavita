@@ -13,9 +13,11 @@ from .serializers import (
     ServiceSerializer,
     ServiceDetailSerializer,
     ServiceCreateSerializer,
+    ServiceUpdateSerializer
 )
 
 logger = logging.getLogger(__name__)
+
 
 @extend_schema(tags=['Servicios'])
 class SpecialtyViewSet(viewsets.ModelViewSet):
@@ -34,6 +36,7 @@ class SpecialtyViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]  # Solo admin puede modificar
 
+
 @extend_schema(tags=['Servicios'])
 class SpecialtyListView(generics.ListAPIView):
     """
@@ -43,12 +46,13 @@ class SpecialtyListView(generics.ListAPIView):
     serializer_class = SpecialtySerializer
     permission_classes = [AllowAny]
 
+
 @extend_schema(tags=['Servicios'])
 class ServiceViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de servicios.
     """
-    queryset = Service.objects.filter(is_active=True)
+    queryset = Service.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['clinic', 'specialty', 'service_type']
     search_fields = ['name', 'description']
@@ -59,12 +63,34 @@ class ServiceViewSet(viewsets.ModelViewSet):
             return ServiceCreateSerializer
         elif self.action == 'retrieve':
             return ServiceDetailSerializer
+        elif self.action in ['update', 'partial_update']:
+            return ServiceUpdateSerializer
         return ServiceSerializer
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [AllowAny()]
         return [IsAuthenticated(), IsClinicAdminOrReadOnly()]
+
+    def get_queryset(self):
+        """Filtrar según el usuario y parámetros"""
+        queryset = super().get_queryset()
+
+        # Si NO es admin y NO pide ver todos, filtrar solo activos
+        user = self.request.user
+        show_all = self.request.query_params.get('show_all') == 'true'
+
+        if not user.is_authenticated or not hasattr(user, 'user_type'):
+            # Usuario anónimo: solo activos
+            return queryset.filter(is_active=True)
+
+        if user.user_type not in ['clinic_admin', 'super_admin'] and not show_all:
+            # Cliente normal: solo activos
+            return queryset.filter(is_active=True)
+
+        # Admin o show_all=true: retornar todo (filtrable por is_active si se desea)
+        return queryset
+
 
 @extend_schema(tags=['Servicios'])
 class ServiceByClinicView(generics.ListAPIView):

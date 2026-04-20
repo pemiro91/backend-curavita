@@ -83,6 +83,29 @@ class Service(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    slug = models.SlugField(unique=True, max_length=200, blank=True)
+
+    icon = models.CharField(
+        _('icon'),
+        max_length=50,
+        blank=True,
+        default='stethoscope',
+        help_text=_('Lucide icon name (e.g., Stethoscope, Heart)')
+    )
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            import itertools
+            base_slug = slugify(self.name)
+            slug = base_slug
+            for i in itertools.count(1):
+                if not Service.objects.filter(slug=slug).exists():
+                    break
+                slug = f"{base_slug}-{i}"
+            self.slug = slug
+        super().save(*args, **kwargs)
+
     class Meta:
         verbose_name = _('service')
         verbose_name_plural = _('services')

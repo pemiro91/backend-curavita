@@ -24,7 +24,7 @@ class Clinic(models.Model):
 
     # Contacto
     email = models.EmailField(_('email'))
-    phone = PhoneNumberField(_('phone'))
+    phone = models.CharField(_('phone'), max_length=20)
     website = models.URLField(_('website'), blank=True)
 
     # Dirección

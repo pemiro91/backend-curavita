@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 
 from django.db.models import Q
 from django.utils import timezone
@@ -230,6 +231,33 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         serializer = AppointmentHistorySerializer(history, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def available_slots(self, request):
+        """Consultar horarios disponibles para un doctor en una fecha"""
+        serializer = AvailableSlotsQuerySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        doctor_id = serializer.validated_data['doctor_id']
+        date = serializer.validated_data['date']
+
+        from apps.clinics.models import Doctor
+        try:
+            doctor = Doctor.objects.get(id=doctor_id)
+        except Doctor.DoesNotExist:
+            return Response(
+                {'error': 'Médico no encontrado.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        slots = TimeSlot.objects.filter(
+            doctor=doctor,
+            date=date,
+            is_available=True,
+            is_blocked=False
+        ).order_by('start_time')
+
+        return Response(TimeSlotSerializer(slots, many=True).data)
+
 @extend_schema(tags=['Citas'])
 class TimeSlotViewSet(viewsets.ModelViewSet):
     """
@@ -250,6 +278,111 @@ class TimeSlotViewSet(viewsets.ModelViewSet):
         if self.action in ['list', 'retrieve']:
             return [AllowAny()]
         return [IsAuthenticated()]  # Solo clínicas pueden modificar
+
+
+    @action(detail=False, methods=['post'])
+    def generate(self, request):
+        """
+        Generar slots automáticamente basado en el horario semanal del doctor.
+
+        Body:
+        {
+            "doctor_id": "uuid",
+            "start_date": "2026-04-20",
+            "end_date": "2026-04-27",
+            "duration_minutes": 30
+        }
+        """
+        doctor_id = request.data.get('doctor_id')
+        start_date_str = request.data.get('start_date')
+        end_date_str = request.data.get('end_date')
+        duration = int(request.data.get('duration_minutes', 30))
+
+        from apps.clinics.models import Doctor
+
+        try:
+            doctor = Doctor.objects.get(id=doctor_id)
+        except Doctor.DoesNotExist:
+            return Response(
+                {'error': 'Médico no encontrado.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Parsear fechas
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+
+        # Horario semanal del doctor (JSON)
+        schedule = doctor.schedule or {}
+
+        created_count = 0
+        current_date = start_date
+
+        while current_date <= end_date:
+            day_name = current_date.strftime('%A').lower()  # monday, tuesday...
+
+            # Mapear nombres de días si es necesario
+            day_mapping = {
+                'monday': 'monday', 'tuesday': 'tuesday', 'wednesday': 'wednesday',
+                'thursday': 'thursday', 'friday': 'friday', 'saturday': 'saturday', 'sunday': 'sunday'
+            }
+
+            day_schedule = schedule.get(day_mapping.get(day_name, day_name), [])
+
+            for slot in day_schedule:
+                start_time = datetime.strptime(slot['start'], '%H:%M').time()
+                end_time = datetime.strptime(slot['end'], '%H:%M').time()
+
+                # Generar slots de duración específica
+                current_time = datetime.combine(current_date, start_time)
+                end_datetime = datetime.combine(current_date, end_time)
+
+                while current_time + timedelta(minutes=duration) <= end_datetime:
+                    slot_start = current_time.time()
+                    slot_end = (current_time + timedelta(minutes=duration)).time()
+
+                    # Crear slot si no existe
+                    obj, created = TimeSlot.objects.get_or_create(
+                        doctor=doctor,
+                        date=current_date,
+                        start_time=slot_start,
+                        defaults={
+                            'end_time': slot_end,
+                            'is_available': True,
+                            'is_blocked': False
+                        }
+                    )
+
+                    if created:
+                        created_count += 1
+
+                    current_time += timedelta(minutes=duration)
+
+            current_date += timedelta(days=1)
+
+        return Response({
+            'message': f'Se crearon {created_count} slots nuevos.',
+            'created': created_count,
+            'doctor': doctor.user.get_full_name(),
+            'period': f'{start_date} a {end_date}'
+        })
+
+    @action(detail=False, methods=['post'])
+    def bulk_block(self, request):
+        """Bloquear múltiples slots (vacaciones, etc.)"""
+        slot_ids = request.data.get('slot_ids', [])
+        reason = request.data.get('reason', '')
+
+        updated = TimeSlot.objects.filter(id__in=slot_ids).update(
+            is_blocked=True,
+            is_available=False,
+            blocked_reason=reason
+        )
+
+        return Response({
+            'message': f'{updated} slots bloqueados.',
+            'blocked': updated
+        })
 
 @extend_schema(tags=['Citas'])
 class MyAppointmentsView(generics.ListAPIView):
