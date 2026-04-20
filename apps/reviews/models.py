@@ -83,6 +83,17 @@ class Review(models.Model):
     moderated_at = models.DateTimeField(null=True, blank=True)
     moderation_notes = models.TextField(blank=True)
 
+    # Respuesta del admin/clínica
+    response = models.TextField(_('response'), blank=True)
+    response_date = models.DateTimeField(_('response date'), null=True, blank=True)
+    responded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='review_responses'
+    )
+
     # Utilidad
     helpful_count = models.PositiveIntegerField(default=0)
 
