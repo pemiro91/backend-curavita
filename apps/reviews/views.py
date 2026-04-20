@@ -27,11 +27,21 @@ class ReviewViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestión de reseñas.
     """
-    queryset = Review.objects.filter(status='approved')
+    queryset = Review.objects.all()
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['clinic', 'doctor', 'rating']
     ordering_fields = ['created_at', 'rating', 'helpful_count']
     ordering = ['-created_at']
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_authenticated and user.user_type in ('super_admin', 'clinic_admin'):
+            qs = Review.objects.all()
+            status_param = self.request.query_params.get('status')
+            if status_param:
+                qs = qs.filter(status=status_param)
+            return qs
+        return Review.objects.filter(status='approved')
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -43,6 +53,8 @@ class ReviewViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [AllowAny()]
+        if self.action in ['helpful', 'report', 'respond']:
+            return [IsAuthenticated()]
         return [IsAuthenticated(), IsReviewOwnerOrReadOnly()]
 
     def perform_create(self, serializer):
@@ -80,6 +92,27 @@ class ReviewViewSet(viewsets.ModelViewSet):
         logger.info(f"Reseña {review.id} reportada por {request.user.email}: {reason}")
 
         return Response({'message': 'Reseña reportada. Será revisada por un moderador.'})
+
+    @action(detail=True, methods=['post'])
+    def respond(self, request, pk=None):
+        """Responder a una reseña (admin/clinic_admin/super_admin)."""
+        if request.user.user_type not in ('super_admin', 'clinic_admin'):
+            return Response(
+                {'detail': 'No tienes permiso para responder reseñas.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        response_text = request.data.get('response', '').strip()
+        if not response_text:
+            return Response(
+                {'response': ['Este campo es obligatorio.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        review = self.get_object()
+        review.response = response_text
+        review.response_date = timezone.now()
+        review.responded_by = request.user
+        review.save(update_fields=['response', 'response_date', 'responded_by'])
+        return Response(ReviewSerializer(review).data)
 
 @extend_schema(tags=['Reseñas'])
 class ReviewByClinicView(generics.ListAPIView):

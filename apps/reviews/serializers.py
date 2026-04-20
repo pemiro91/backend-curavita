@@ -42,9 +42,13 @@ class ReviewSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'patient', 'clinic', 'clinic_name', 'doctor', 'doctor_name',
             'rating', 'title', 'status', 'helpful_count',
+            'response', 'response_date', 'responded_by',
             'is_helpful', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['status', 'helpful_count', 'created_at', 'updated_at']
+        read_only_fields = [
+            'status', 'helpful_count', 'response_date', 'responded_by',
+            'created_at', 'updated_at'
+        ]
 
     def get_is_helpful(self, obj):
         """
@@ -110,6 +114,7 @@ class ReviewDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'patient', 'clinic', 'clinic_name', 'doctor', 'doctor_name',
             'rating', 'title', 'status', 'helpful_count',
+            'response', 'response_date', 'responded_by',
             'is_helpful', 'moderated_by', 'moderated_by_name', 'moderated_at',
             'moderation_notes', 'created_at', 'updated_at'
         ]
