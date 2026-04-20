@@ -237,3 +237,45 @@ class UserAdminSerializer(serializers.ModelSerializer):
             'date_joined', 'last_login', 'addresses'
         ]
         read_only_fields = ['id', 'date_joined', 'last_login']
+
+
+class UserAdminCreateSerializer(serializers.ModelSerializer):
+    """
+    Creación de usuarios desde el panel admin. No requiere password_confirm
+    y permite establecer user_type directamente.
+    """
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        validators=[validate_password],
+        min_length=8,
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            'email', 'first_name', 'last_name', 'password',
+            'phone', 'user_type', 'preferred_language', 'is_active',
+        ]
+        extra_kwargs = {
+            'user_type': {'required': True},
+            'phone': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'preferred_language': {'required': False},
+            'is_active': {'required': False, 'default': True},
+        }
+
+    def validate_user_type(self, value):
+        allowed = ['patient', 'doctor', 'clinic_admin']
+        if value not in allowed:
+            raise serializers.ValidationError(
+                f"user_type debe ser uno de {allowed}"
+            )
+        return value
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        user = User(**validated_data)
+        user.set_password(password)
+        user.is_verified = True
+        user.save()
+        return user
