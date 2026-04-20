@@ -192,7 +192,7 @@ def request_review_after_completion(sender, instance, **kwargs):
                 channel='email',
                 title='¿Cómo fue tu experiencia?',
                 message=f'Por favor, cuéntanos cómo fue tu visita con Dr. {instance.doctor.user.full_name}.',
-                action_url=f'/reviews/create?appointment={instance.id}',
+                action_url=f'/reviews/new/{instance.id}',
                 scheduled_at=review_time
             )
 
