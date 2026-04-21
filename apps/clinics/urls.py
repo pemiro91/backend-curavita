@@ -14,9 +14,12 @@ from .views import (
 )
 
 # Router principal
+# IMPORTANT: register 'doctors' BEFORE '' so the slug-lookup of ClinicViewSet
+# (pattern ^(?P<slug>[^/.]+)/$ ) doesn't swallow /doctors/ as a clinic detail,
+# which would return 405 on POST (detail view doesn't accept POST).
 router = DefaultRouter()
-router.register(r'', ClinicViewSet, basename='clinic')
 router.register(r'doctors', DoctorViewSet, basename='doctor')
+router.register(r'', ClinicViewSet, basename='clinic')
 
 # Router anidado para imágenes de clínicas
 # Esto crea rutas como /clinics/{clinic_pk}/images/
