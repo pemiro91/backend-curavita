@@ -500,10 +500,14 @@ class ClinicStatsView(generics.GenericAPIView):
         })
 
 
-class DoctorRegistrationView(GenericAPIView):
+# ============= DOCTOR UNIFIED REGISTRATION =============
+
+@extend_schema(tags=['Clínicas'])
+class DoctorRegistrationView(generics.GenericAPIView):
     """
-    Endpoint para creación unificada de doctor(es).
-    URL sugerida: POST /api/v1/clinics/doctors/register/  (o /api/v1/auth/doctors/ si prefieres)
+    POST /api/v1/clinics/doctors/
+    Endpoint de alta unificada de doctores.
+    Crea User (role=doctor) + Doctor(s) en una sola transacción.
     """
     permission_classes = [IsAuthenticated]  # o AllowAny si se permite registro público
     serializer_class = DoctorRegistrationSerializer
@@ -514,6 +518,7 @@ class DoctorRegistrationView(GenericAPIView):
         result = serializer.save()
         user = result['user']
         doctors = result['doctors']
+
         return Response({
             'user': UserSerializer(user).data,
             'doctors': [DoctorDetailSerializer(d).data for d in doctors]

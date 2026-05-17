@@ -1,13 +1,11 @@
-from rest_framework import serializers
-
-from apps.services.serializers import SpecialtySerializer
-from apps.users.models import User
-
-from .models import Clinic, Doctor, ClinicImage
 from django.db import transaction
 from rest_framework import serializers
-from apps.users.serializers import UserCreateSerializer  # reutilizar validaciones de usuario
+
 from apps.services.models import Specialty
+from apps.services.serializers import SpecialtySerializer
+from apps.users.models import User
+from apps.users.serializers import UserCreateSerializer  # reutilizar validaciones de usuario
+from .models import Clinic, Doctor, ClinicImage
 
 
 class ClinicImageSerializer(serializers.ModelSerializer):
@@ -93,10 +91,25 @@ class DoctorListSerializer(serializers.ModelSerializer):
 # Serializer para el payload unificado
 class DoctorRegistrationSerializer(serializers.Serializer):
     user = UserCreateSerializer()
-    profile = serializers.DictField(child=serializers.CharField(), required=False)
-    specialties = serializers.ListField(child=serializers.UUIDField(), required=False, default=list)
-    clinics = serializers.ListField(child=serializers.UUIDField(), required=True)
-    schedule = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+    profile = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        default=dict
+    )
+    specialties = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list
+    )
+    clinics = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=True
+    )
+    schedule = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list
+    )
 
     def validate_specialties(self, value):
         missing = [str(s) for s in value if not Specialty.objects.filter(id=s).exists()]
@@ -104,69 +117,98 @@ class DoctorRegistrationSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Specialties not found: {', '.join(missing)}")
         return value
 
+    def validate_clinics(self, value):
+        """Validar que existan todas las clínicas."""
+        missing = [str(c) for c in value if not Clinic.objects.filter(id=c).exists()]
+        if missing:
+            raise serializers.ValidationError(f"Clinics not found: {', '.join(missing)}")
+        if not value:
+            raise serializers.ValidationError("At least one clinic is required.")
+        return value
+
+    def _normalize_schedule(self, slots):
+        """
+        Convierte lista de slots a JSON esperado por Doctor.schedule.
+        Input: [{"weekday": 0, "start_time": "08:00", "end_time": "12:00"}, ...]
+        Output: {"monday": [{"start": "08:00", "end": "12:00"}], ...}
+        """
+        days_map = {
+            0: 'monday', 1: 'tuesday', 2: 'wednesday',
+            3: 'thursday', 4: 'friday', 5: 'saturday', 6: 'sunday'
+        }
+        result = {}
+        for slot in slots:
+            try:
+                weekday = int(slot.get('weekday'))
+                day_key = days_map.get(weekday)
+                if not day_key:
+                    continue
+
+                start_time = slot.get('start_time')
+                end_time = slot.get('end_time')
+
+                if not start_time or not end_time:
+                    continue
+
+                result.setdefault(day_key, [])
+                result[day_key].append({
+                    'start': start_time,
+                    'end': end_time
+                })
+            except (ValueError, TypeError):
+                continue
+        return result
+
     def create(self, validated_data):
         """
-        Crea User (reutiliza UserCreateSerializer) y uno o varios Doctor(s) asociados a las clinics.
-        Se ejecuta en una transacción para rollback seguro.
-        Retorna: {'user': user, 'doctors': [doctor, ...]}
+        Crear User + Doctor(s) en transacción atómica.
+        - Crea User con user_type='doctor'.
+        - Crea un Doctor por cada clinic indicada.
+        - Asigna specialties (primera = primary, resto = secondary).
+        - Guarda schedule.
         """
         user_data = validated_data['user']
-        profile = validated_data.get('profile', {})
+        profile_data = validated_data.get('profile', {})
         specialties_ids = validated_data.get('specialties', [])
-        clinic_ids = validated_data['clinics']
+        clinics_ids = validated_data['clinics']
         schedule_input = validated_data.get('schedule', [])
 
-        # Normalizar schedule a JSON por día (puedes adaptar formato al tuyo)
-        def _normalize_schedule(slots):
-            # esperar slots = [{ "weekday":0, "start_time":"08:00", "end_time":"12:00" }, ...]
-            days = {'monday': [], 'tuesday': [], 'wednesday': [], 'thursday': [], 'friday': [], 'saturday': [],
-                    'sunday': []}
-            map_weekday = {0: 'monday', 1: 'tuesday', 2: 'wednesday', 3: 'thursday', 4: 'friday', 5: 'saturday',
-                           6: 'sunday'}
-            for s in slots:
-                key = map_weekday.get(int(s.get('weekday')))
-                if not key:
-                    continue
-                days[key].append({'start': s.get('start_time'), 'end': s.get('end_time')})
-            # quitar días vacíos
-            return {k: v for k, v in days.items() if v}
-
-        schedule_json = _normalize_schedule(schedule_input)
-
-        from apps.clinics.models import Doctor, Clinic
-        from apps.services.models import Specialty as SpecModel
+        # Normalizar schedule a JSON
+        schedule_json = self._normalize_schedule(schedule_input)
 
         with transaction.atomic():
-            # crear usuario usando el serializer de users (aplica validaciones)
+            # Crear usuario (reutiliza UserCreateSerializer)
             user_serializer = UserCreateSerializer(data=user_data)
             user_serializer.is_valid(raise_exception=True)
             user = user_serializer.save()
 
-            # resolver specialties
-            primary = None
-            secondaries = []
+            # Resolver specialties
+            primary_specialty = None
+            secondary_specialties = []
             if specialties_ids:
-                primary = SpecModel.objects.get(id=specialties_ids[0])
+                primary_specialty = Specialty.objects.get(id=specialties_ids[0])
                 if len(specialties_ids) > 1:
-                    secondaries = SpecModel.objects.filter(id__in=specialties_ids[1:])
+                    secondary_specialties = list(Specialty.objects.filter(id__in=specialties_ids[1:]))
 
+            # Crear un Doctor por cada clinic
             created_doctors = []
-            for cid in clinic_ids:
-                clinic = Clinic.objects.get(id=cid)
-                doc = Doctor.objects.create(
+            for clinic_id in clinics_ids:
+                clinic = Clinic.objects.get(id=clinic_id)
+                doctor = Doctor.objects.create(
                     user=user,
                     clinic=clinic,
-                    license_number=profile.get('license_number', ''),
-                    bio=profile.get('biography', ''),
-                    consultation_fee=profile.get('consultation_price', 0) or 0,
-                    experience_years=profile.get('years_of_experience', 0),
+                    license_number=profile_data.get('license_number', ''),
+                    bio=profile_data.get('biography', ''),
+                    consultation_fee=profile_data.get('consultation_price') or 0,
+                    experience_years=int(profile_data.get('years_of_experience', 0) or 0),
                     schedule=schedule_json,
-                    specialty=primary if primary else None,
+                    specialty=primary_specialty if primary_specialty else None,
                 )
-                # assign secondary specialties if present
-                for s in secondaries:
-                    doc.secondary_specialties.add(s)
-                created_doctors.append(doc)
+                # Asignar specialties secundarias
+                if secondary_specialties:
+                    for spec in secondary_specialties:
+                        doctor.secondary_specialties.add(spec)
+                created_doctors.append(doctor)
 
         return {'user': user, 'doctors': created_doctors}
 

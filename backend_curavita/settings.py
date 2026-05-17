@@ -334,6 +334,12 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
     'SCHEMA_PATH_PREFIX': r'/api/v[0-9]',
     'SCHEMA_PATH_PREFIX_TRIM': True,
+    'SERVERS': [
+        {
+            'url': '/api/v1',
+            'description': 'API v1'
+        }
+    ],
 }
 
 

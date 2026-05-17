@@ -2,6 +2,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
+from .reports import ReportsAppointmentsView
 
 router = DefaultRouter()
 router.register(r'appointments', views.AppointmentViewSet, basename='appointment')
@@ -26,4 +27,5 @@ urlpatterns = [
 
     # Consulta de slots disponibles
     path('available-slots/', views.AvailableSlotsView.as_view(), name='available-slots'),
+    path('reports', ReportsAppointmentsView.as_view(), name='reports-appointments'),
 ]

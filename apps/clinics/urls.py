@@ -56,5 +56,6 @@ urlpatterns = [
          AvailableSlotsView.as_view(), name='doctor-available-slots'),
     path('doctors/<uuid:pk>/stats/',
          ClinicStatsView.as_view(), name='doctor-stats'),
-    path('doctors/register/', DoctorRegistrationView.as_view(), name='doctor-register'),
+    # Registro de doctores (alta unificada)
+    path('doctors/', DoctorRegistrationView.as_view(), name='doctor-register'),
 ]
