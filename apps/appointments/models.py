@@ -55,6 +55,14 @@ class Appointment(models.Model):
         default=Status.PENDING
     )
 
+    payment_method = models.CharField(max_length=50, blank=True)
+    is_online = models.BooleanField(default=False)
+    meeting_room = models.CharField(max_length=100, blank=True)
+
+    # Campos para complete()
+    diagnosis = models.TextField(blank=True)
+    prescription = models.TextField(blank=True)
+
     # Cancelación
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancelled_by = models.ForeignKey(

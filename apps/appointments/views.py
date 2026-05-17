@@ -258,6 +258,23 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
         return Response(TimeSlotSerializer(slots, many=True).data)
 
+    @action(detail=True, methods=['post'])
+    def start_call(self, request, pk=None):
+        appointment = self.get_object()
+        # Verificar permisos: paciente o doctor o admin
+        user = request.user
+        if not (user == appointment.patient or user == appointment.doctor.user or user.user_type == 'super_admin'):
+            raise PermissionDenied()
+        if not appointment.is_online:
+            # marcar como online o permitir iniciar igualmente
+            appointment.is_online = True
+        if not appointment.meeting_room:
+            appointment.meeting_room = f"curavita-{appointment.id}"
+        appointment.save(update_fields=['is_online', 'meeting_room'])
+        data = {'room_name': appointment.meeting_room}
+        # Si usas JITSI privado, podrías generar token aquí.
+        return Response(data)
+
 @extend_schema(tags=['Citas'])
 class TimeSlotViewSet(viewsets.ModelViewSet):
     """

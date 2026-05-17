@@ -4,6 +4,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
+from apps.loyalty.models import LoyaltyAccount, LoyaltyTransaction
 
 from .models import Appointment, TimeSlot, AppointmentHistory
 
@@ -210,3 +211,23 @@ def release_time_slot_on_delete(sender, instance, **kwargs):
         start_time=instance.start_time
     ).update(is_available=True)
     logger.info(f"Horario liberado por eliminación de cita {instance.appointment_number}")
+
+
+@receiver(post_save, sender=Appointment)
+def award_loyalty_on_complete(sender, instance, created, **kwargs):
+    """Otorgar 50 puntos cuando se completa una cita."""
+    if not created and instance.status == 'completed':
+        try:
+            account, _ = LoyaltyAccount.objects.get_or_create(user=instance.patient)
+            points = 50
+            account.balance += points
+            account.save()
+            LoyaltyTransaction.objects.create(
+                account=account,
+                type='earn',
+                points=points,
+                reason=f'Cita completada: {instance.appointment_number}',
+            )
+            logger.info(f"Loyalty: +{points} puntos para {instance.patient.email} por cita completada.")
+        except Exception as e:
+            logger.error(f"Error asignando loyalty en cita: {e}")

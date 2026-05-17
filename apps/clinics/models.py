@@ -80,6 +80,15 @@ class Clinic(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    applicant_email = models.EmailField(blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        "users.User",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+"
+    )
+
     class Meta:
         verbose_name = _('clinic')
         verbose_name_plural = _('clinics')

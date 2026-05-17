@@ -1,9 +1,13 @@
-import phonenumbers
 from rest_framework import serializers
 
 from apps.services.serializers import SpecialtySerializer
-from .models import Clinic, Doctor, ClinicImage
 from apps.users.models import User
+
+from .models import Clinic, Doctor, ClinicImage
+from django.db import transaction
+from rest_framework import serializers
+from apps.users.serializers import UserCreateSerializer  # reutilizar validaciones de usuario
+from apps.services.models import Specialty
 
 
 class ClinicImageSerializer(serializers.ModelSerializer):
@@ -47,6 +51,7 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
             'allow_online_booking', 'services', 'doctors',
             'created_at', 'is_active'
         ]
+        read_only_fields = ["approved_at", "approved_by"]
 
     def get_services(self, obj):
         from apps.services.serializers import ServiceSerializer
@@ -56,6 +61,17 @@ class ClinicDetailSerializer(serializers.ModelSerializer):
     def get_doctors(self, obj):
         doctors = obj.doctors.filter(status='active')[:10]
         return DoctorListSerializer(doctors, many=True).data
+
+
+class ClinicRegisterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Clinic
+        exclude = ["logo", "cover_image", "status", "approved_at",
+                   "approved_by", "rating", "review_count", "admins"]
+
+    def create(self, validated_data):
+        validated_data["status"] = "pending_approval"
+        return super().create(validated_data)
 
 
 class DoctorListSerializer(serializers.ModelSerializer):
@@ -72,6 +88,87 @@ class DoctorListSerializer(serializers.ModelSerializer):
             'experience_years', 'consultation_fee', 'rating',
             'clinic_name', 'status'
         ]
+
+
+# Serializer para el payload unificado
+class DoctorRegistrationSerializer(serializers.Serializer):
+    user = UserCreateSerializer()
+    profile = serializers.DictField(child=serializers.CharField(), required=False)
+    specialties = serializers.ListField(child=serializers.UUIDField(), required=False, default=list)
+    clinics = serializers.ListField(child=serializers.UUIDField(), required=True)
+    schedule = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+
+    def validate_specialties(self, value):
+        missing = [str(s) for s in value if not Specialty.objects.filter(id=s).exists()]
+        if missing:
+            raise serializers.ValidationError(f"Specialties not found: {', '.join(missing)}")
+        return value
+
+    def create(self, validated_data):
+        """
+        Crea User (reutiliza UserCreateSerializer) y uno o varios Doctor(s) asociados a las clinics.
+        Se ejecuta en una transacción para rollback seguro.
+        Retorna: {'user': user, 'doctors': [doctor, ...]}
+        """
+        user_data = validated_data['user']
+        profile = validated_data.get('profile', {})
+        specialties_ids = validated_data.get('specialties', [])
+        clinic_ids = validated_data['clinics']
+        schedule_input = validated_data.get('schedule', [])
+
+        # Normalizar schedule a JSON por día (puedes adaptar formato al tuyo)
+        def _normalize_schedule(slots):
+            # esperar slots = [{ "weekday":0, "start_time":"08:00", "end_time":"12:00" }, ...]
+            days = {'monday': [], 'tuesday': [], 'wednesday': [], 'thursday': [], 'friday': [], 'saturday': [],
+                    'sunday': []}
+            map_weekday = {0: 'monday', 1: 'tuesday', 2: 'wednesday', 3: 'thursday', 4: 'friday', 5: 'saturday',
+                           6: 'sunday'}
+            for s in slots:
+                key = map_weekday.get(int(s.get('weekday')))
+                if not key:
+                    continue
+                days[key].append({'start': s.get('start_time'), 'end': s.get('end_time')})
+            # quitar días vacíos
+            return {k: v for k, v in days.items() if v}
+
+        schedule_json = _normalize_schedule(schedule_input)
+
+        from apps.clinics.models import Doctor, Clinic
+        from apps.services.models import Specialty as SpecModel
+
+        with transaction.atomic():
+            # crear usuario usando el serializer de users (aplica validaciones)
+            user_serializer = UserCreateSerializer(data=user_data)
+            user_serializer.is_valid(raise_exception=True)
+            user = user_serializer.save()
+
+            # resolver specialties
+            primary = None
+            secondaries = []
+            if specialties_ids:
+                primary = SpecModel.objects.get(id=specialties_ids[0])
+                if len(specialties_ids) > 1:
+                    secondaries = SpecModel.objects.filter(id__in=specialties_ids[1:])
+
+            created_doctors = []
+            for cid in clinic_ids:
+                clinic = Clinic.objects.get(id=cid)
+                doc = Doctor.objects.create(
+                    user=user,
+                    clinic=clinic,
+                    license_number=profile.get('license_number', ''),
+                    bio=profile.get('biography', ''),
+                    consultation_fee=profile.get('consultation_price', 0) or 0,
+                    experience_years=profile.get('years_of_experience', 0),
+                    schedule=schedule_json,
+                    specialty=primary if primary else None,
+                )
+                # assign secondary specialties if present
+                for s in secondaries:
+                    doc.secondary_specialties.add(s)
+                created_doctors.append(doc)
+
+        return {'user': user, 'doctors': created_doctors}
 
 
 class DoctorDetailSerializer(serializers.ModelSerializer):
@@ -184,7 +281,7 @@ class DoctorUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate_user_id(self, value):
-        
+
         try:
             user = User.objects.get(id=value)
             if user.user_type != 'doctor':
@@ -372,3 +469,23 @@ class ClinicUpdateSerializer(serializers.ModelSerializer):
                 {"closing_time": "La hora de cierre debe ser posterior a la de apertura."}
             )
         return attrs
+
+
+# ============= CLINIC REJECTION & PANEL ENDPOINTS =============
+
+class ClinicRejectSerializer(serializers.Serializer):
+    """Serializer para rechazar solicitud de clínica."""
+    reason = serializers.CharField(required=True, max_length=500)
+
+
+class ClinicStatsSerializer(serializers.Serializer):
+    """Serializer para estadísticas de clínica."""
+    total_appointments = serializers.IntegerField()
+    completed_appointments = serializers.IntegerField()
+    cancelled_appointments = serializers.IntegerField()
+    pending_appointments = serializers.IntegerField()
+    completion_rate = serializers.FloatField()
+    total_doctors = serializers.IntegerField()
+    total_reviews = serializers.IntegerField()
+    average_rating = serializers.FloatField()
+    total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)

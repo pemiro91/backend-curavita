@@ -2,6 +2,7 @@ import logging
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.db.models import Avg
+from apps.loyalty.models import LoyaltyAccount, LoyaltyTransaction
 
 from .models import Review, ReviewHelpful
 
@@ -127,3 +128,23 @@ def decrement_helpful_count(sender, instance, **kwargs):
     review = instance.review
     review.helpful_count = max(0, ReviewHelpful.objects.filter(review=review).count())
     review.save(update_fields=['helpful_count'])
+
+
+@receiver(post_save, sender=Review)
+def award_loyalty_on_review_approved(sender, instance, created, **kwargs):
+    """Otorgar 20 puntos cuando se aprueba una reseña."""
+    if not created and instance.status == 'approved':
+        try:
+            account, _ = LoyaltyAccount.objects.get_or_create(user=instance.patient)
+            points = 20
+            account.balance += points
+            account.save()
+            LoyaltyTransaction.objects.create(
+                account=account,
+                type='earn',
+                points=points,
+                reason=f'Reseña aprobada: {instance.id}',
+            )
+            logger.info(f"Loyalty: +{points} puntos para {instance.patient.email} por reseña aprobada.")
+        except Exception as e:
+            logger.error(f"Error asignando loyalty en reseña: {e}")

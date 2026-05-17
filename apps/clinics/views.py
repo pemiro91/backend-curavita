@@ -1,7 +1,9 @@
 import logging
 
+from django.core.mail import send_mail
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from geopy.distance import geodesic
@@ -10,20 +12,24 @@ from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework import status
+
+from backend_curavita import settings
+
+from apps.users.serializers import UserSerializer
+from apps.users.models import User
 
 from .models import Clinic, Doctor, ClinicImage
 from .permissions import IsClinicAdminOrReadOnly, IsClinicAdmin
 from .serializers import (
-    ClinicListSerializer,
-    ClinicDetailSerializer,
-    ClinicCreateSerializer,
-    DoctorListSerializer,
-    DoctorDetailSerializer,
-    DoctorCreateSerializer,
-    ClinicImageSerializer,
-    DoctorUpdateSerializer,
+    ClinicListSerializer, ClinicDetailSerializer, ClinicCreateSerializer,
+    DoctorListSerializer, DoctorDetailSerializer, DoctorCreateSerializer,
+    ClinicImageSerializer, DoctorUpdateSerializer, ClinicRegisterSerializer,
+    ClinicUpdateSerializer, DoctorRegistrationSerializer, ClinicStatsSerializer,
+    ClinicRejectSerializer
 )
 from ..appointments.serializers import TimeSlotSerializer
 from ..appointments.utils import generate_slots_from_schedule
@@ -147,15 +153,38 @@ class ClinicViewSet(viewsets.ModelViewSet):
         serializer = DoctorListSerializer(doctors, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsClinicAdmin])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def approve(self, request, pk=None):
-        """Aprobar clínica (solo super admin)"""
         if request.user.user_type != 'super_admin':
             raise PermissionDenied('Solo super admin puede aprobar clínicas.')
 
         clinic = self.get_object()
         clinic.status = 'active'
-        clinic.save()
+        clinic.approved_at = timezone.now()
+        clinic.approved_by = request.user
+
+        # Crear clinic_admin si no hay admins o applicant_email existe
+        if clinic.applicant_email and not clinic.admins.exists():
+            from apps.users.models import User
+            temp_password = User.objects.make_random_password()
+            admin_user = User.objects.create_user(
+                email=clinic.applicant_email,
+                first_name='Admin',
+                last_name=clinic.name[:30],
+                password=temp_password,
+                user_type='clinic_admin',
+                is_verified=True
+            )
+            clinic.admins.add(admin_user)
+            # Enviar email con credenciales temporales
+            send_mail(
+                subject='Tu clínica ha sido aprobada',
+                message=f'Hola,\n\nTu clínica {clinic.name} ha sido aprobada. Credenciales:\nEmail: {admin_user.email}\nPassword: {temp_password}\n\nPor favor cambia la contraseña al iniciar sesión.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[clinic.applicant_email],
+                fail_silently=True,
+            )
+        clinic.save(update_fields=['status', 'approved_at', 'approved_by'])
         return Response({'message': 'Clínica aprobada correctamente.'})
 
     def get_parser_classes(self):
@@ -186,6 +215,22 @@ class ClinicViewSet(viewsets.ModelViewSet):
             'message': f'Estado cambiado a {new_status}',
             'clinic': ClinicDetailSerializer(clinic).data
         })
+
+
+class ClinicMeView(generics.RetrieveUpdateAPIView):
+    permission_classes = [IsAuthenticated, IsClinicAdmin]
+    serializer_class = ClinicUpdateSerializer
+
+    def get_object(self):
+        user = self.request.user
+        clinics = Clinic.objects.filter(admins=user)
+        if not clinics.exists():
+            raise PermissionDenied("No administras ninguna clínica.")
+        # Si administra varias, podrías recibir ?clinic_id=xxx
+        clinic_id = self.request.query_params.get('clinic_id')
+        if clinic_id:
+            return clinics.get(id=clinic_id)
+        return clinics.first()
 
 
 # apps/clinics/views.py - Actualizar DoctorViewSet
@@ -453,3 +498,232 @@ class ClinicStatsView(generics.GenericAPIView):
             'rating': doctor.rating,
             'review_count': doctor.review_count,
         })
+
+
+class DoctorRegistrationView(GenericAPIView):
+    """
+    Endpoint para creación unificada de doctor(es).
+    URL sugerida: POST /api/v1/clinics/doctors/register/  (o /api/v1/auth/doctors/ si prefieres)
+    """
+    permission_classes = [IsAuthenticated]  # o AllowAny si se permite registro público
+    serializer_class = DoctorRegistrationSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save()
+        user = result['user']
+        doctors = result['doctors']
+        return Response({
+            'user': UserSerializer(user).data,
+            'doctors': [DoctorDetailSerializer(d).data for d in doctors]
+        }, status=status.HTTP_201_CREATED)
+
+
+class ClinicRegisterView(generics.CreateAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ClinicRegisterSerializer
+    queryset = Clinic.objects.all()
+
+    def perform_create(self, serializer):
+        clinic = serializer.save()
+        # Enviar email a superadmins
+        super_admins = User.objects.filter(user_type='super_admin', is_active=True).values_list('email', flat=True)
+        if super_admins:
+            send_mail(
+                subject='Nueva solicitud de registro de clínica',
+                message=f'Nueva clínica solicitada: {clinic.name} ({clinic.email}). Revisar en admin.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=list(super_admins),
+                fail_silently=True,
+            )
+
+
+# ============= CLINIC REJECTION =============
+
+@extend_schema(tags=['Clínicas'])
+class ClinicRejectView(generics.GenericAPIView):
+    """
+    POST /api/v1/clinics/{slug}/reject/ — rechazar solicitud de clínica (solo super_admin).
+    Body: { "reason": "Documentación incompleta" }
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ClinicRejectSerializer
+
+    def post(self, request, slug=None):
+        if request.user.user_type != 'super_admin':
+            raise PermissionDenied('Solo super admin puede rechazar clínicas.')
+
+        try:
+            clinic = Clinic.objects.get(slug=slug)
+        except Clinic.DoesNotExist:
+            return Response({'error': 'Clínica no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data['reason']
+
+        clinic.status = 'rejected'
+        clinic.save(update_fields=['status'])
+
+        # Enviar email de rechazo
+        try:
+            send_mail(
+                subject=f'Solicitud de clínica rechazada: {clinic.name}',
+                message=(
+                    f'Hola,\n\n'
+                    f'Lamentably, tu solicitud para registrar la clínica "{clinic.name}" ha sido rechazada.\n\n'
+                    f'Motivo: {reason}\n\n'
+                    f'Si tienes dudas, contacta con el equipo de soporte.\n'
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[clinic.applicant_email or clinic.email],
+                fail_silently=True,
+            )
+        except Exception:
+            pass
+
+        return Response({'message': 'Clínica rechazada correctamente.'})
+
+
+# ============= CLINIC ADMIN PANEL =============
+
+@extend_schema(tags=['Clínicas'])
+class ClinicMeView(generics.RetrieveUpdateAPIView):
+    """
+    GET/PATCH /api/v1/clinics/me/ — obtener/actualizar la clínica propia del clinic_admin.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ClinicDetailSerializer
+
+    def get_object(self):
+        user = self.request.user
+        if user.user_type != 'clinic_admin':
+            raise PermissionDenied('Solo clinic_admin puede acceder a este endpoint.')
+
+        clinics = Clinic.objects.filter(admins=user)
+        if not clinics.exists():
+            raise PermissionDenied('No administras ninguna clínica.')
+
+        # Si administra varias clínicas, permitir filtrar por query param
+        clinic_id = self.request.query_params.get('clinic_id')
+        if clinic_id:
+            return clinics.get(id=clinic_id)
+        return clinics.first()
+
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return ClinicUpdateSerializer
+        return ClinicDetailSerializer
+
+
+@extend_schema(tags=['Clínicas'])
+class ClinicMeImagesView(generics.GenericAPIView):
+    """
+    POST /api/v1/clinics/me/images/ — subir imágenes a la galería de la clínica propia.
+    Multipart: { "image": file, "caption": "..." }
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ClinicImageSerializer
+
+    def get_clinic(self):
+        user = self.request.user
+        if user.user_type != 'clinic_admin':
+            raise PermissionDenied('Solo clinic_admin puede acceder.')
+
+        clinics = Clinic.objects.filter(admins=user)
+        if not clinics.exists():
+            raise PermissionDenied('No administras ninguna clínica.')
+
+        clinic_id = self.request.query_params.get('clinic_id')
+        if clinic_id:
+            return clinics.get(id=clinic_id)
+        return clinics.first()
+
+    def post(self, request):
+        clinic = self.get_clinic()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        image_obj = serializer.save(clinic=clinic)
+        return Response(
+            ClinicImageSerializer(image_obj).data,
+            status=status.HTTP_201_CREATED
+        )
+
+    def get(self, request):
+        clinic = self.get_clinic()
+        images = ClinicImage.objects.filter(clinic=clinic).order_by('order')
+        serializer = ClinicImageSerializer(images, many=True)
+        return Response(serializer.data)
+
+
+@extend_schema(tags=['Clínicas'])
+class ClinicMeStatsView(generics.GenericAPIView):
+    """
+    GET /api/v1/clinics/me/stats/ — estadísticas de la clínica propia.
+    Retorna: citas (total, completadas, canceladas), rating, revenue, doctores.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ClinicStatsSerializer
+
+    def get(self, request):
+        user = request.user
+        if user.user_type != 'clinic_admin':
+            raise PermissionDenied('Solo clinic_admin puede acceder.')
+
+        clinics = Clinic.objects.filter(admins=user)
+        if not clinics.exists():
+            raise PermissionDenied('No administras ninguna clínica.')
+
+        clinic_id = request.query_params.get('clinic_id')
+        if clinic_id:
+            clinic = clinics.get(id=clinic_id)
+        else:
+            clinic = clinics.first()
+
+        from apps.appointments.models import Appointment
+        from apps.reviews.models import Review
+        from decimal import Decimal
+
+        # Estadísticas de citas
+        total_appointments = Appointment.objects.filter(clinic=clinic).count()
+        completed_appointments = Appointment.objects.filter(clinic=clinic, status='completed').count()
+        cancelled_appointments = Appointment.objects.filter(clinic=clinic, status='cancelled').count()
+        pending_appointments = Appointment.objects.filter(clinic=clinic, status='pending').count()
+        completion_rate = (
+            (completed_appointments / total_appointments * 100)
+            if total_appointments > 0 else 0
+        )
+
+        # Estadísticas de doctores
+        total_doctors = clinic.doctors.filter(status='active').count()
+
+        # Estadísticas de reseñas
+        reviews = Review.objects.filter(clinic=clinic, status='approved')
+        total_reviews = reviews.count()
+        average_rating = (
+                reviews.aggregate(models.Avg('rating'))['rating__avg']
+                or 0
+        )
+
+        # Revenue (suma de precios de servicios en citas completadas)
+        total_revenue = Decimal('0.00')
+        completed = Appointment.objects.filter(clinic=clinic, status='completed').select_related('service')
+        for apt in completed:
+            if apt.service:
+                total_revenue += apt.service.price or Decimal('0.00')
+
+        data = {
+            'total_appointments': total_appointments,
+            'completed_appointments': completed_appointments,
+            'cancelled_appointments': cancelled_appointments,
+            'pending_appointments': pending_appointments,
+            'completion_rate': round(completion_rate, 2),
+            'total_doctors': total_doctors,
+            'total_reviews': total_reviews,
+            'average_rating': round(float(average_rating), 2),
+            'total_revenue': total_revenue,
+        }
+
+        serializer = self.get_serializer(data)
+        return Response(serializer.data)

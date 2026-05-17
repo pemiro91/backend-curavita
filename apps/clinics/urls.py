@@ -11,6 +11,12 @@ from .views import (
     DoctorScheduleView,
     AvailableSlotsView,
     ClinicStatsView,
+    DoctorRegistrationView,
+    ClinicRegisterView,
+    ClinicMeView,
+    ClinicRejectView,
+    ClinicMeImagesView,
+    ClinicMeStatsView
 )
 
 # Router principal
@@ -34,7 +40,13 @@ urlpatterns = [
     # Vistas adicionales de búsqueda y geolocalización
     path('nearby/', NearbyClinicsView.as_view(), name='clinics-nearby'),
     path('search/', ClinicSearchView.as_view(), name='clinics-search'),
-
+    path('register/', ClinicRegisterView.as_view(), name='clinic-register'),
+    path('me/', ClinicMeView.as_view(), name='clinic-me'),
+    path('me/images/', ClinicMeImagesView.as_view(), name='clinic-me-images'),
+    path('me/stats/', ClinicMeStatsView.as_view(), name='clinic-me-stats'),
+    # Rechazo de solicitud (slug-based, debe ir DESPUÉS de rutas /me/)
+    path('<slug:slug>/reject/', ClinicRejectView.as_view(), name='clinic-reject'),
+    # adaptar ClinicStatsView para usar clinic del admin
     # path('<slug:slug>/', ClinicDetailView.as_view(), name='clinic-detail'),
 
     # Rutas específicas de doctores (vistas adicionales)
@@ -44,4 +56,5 @@ urlpatterns = [
          AvailableSlotsView.as_view(), name='doctor-available-slots'),
     path('doctors/<uuid:pk>/stats/',
          ClinicStatsView.as_view(), name='doctor-stats'),
+    path('doctors/register/', DoctorRegistrationView.as_view(), name='doctor-register'),
 ]
